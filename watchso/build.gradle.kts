@@ -64,6 +64,7 @@ dependencies {
 
     // ----- НОВЫЕ ЗАВИСИМОСТИ -----
     // Wear Compose UI
+    implementation(libs.androidx.wear.compose.material3)
     implementation(libs.androidx.compose.material) // ИЗМЕНЕНО: используем псевдоним 'androidx-compose-material' из toml, который ссылается на androidx.wear.compose:compose-material
     implementation(libs.androidx.compose.foundation) // ИЗМЕНЕНО: используем псевдоним 'androidx-compose-foundation' из toml, который ссылается на androidx.wear.compose:compose-foundation
 

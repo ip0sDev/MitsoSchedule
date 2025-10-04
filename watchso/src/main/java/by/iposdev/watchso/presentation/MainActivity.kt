@@ -31,18 +31,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
-import androidx.wear.compose.material.Button
-import androidx.wear.compose.material.ButtonDefaults
-import androidx.wear.compose.material.Card
+import androidx.wear.compose.material.TimeText
+import androidx.wear.compose.material3.Button
+import androidx.wear.compose.material3.ButtonDefaults
+import androidx.wear.compose.material3.Card
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
-import androidx.wear.compose.material.CircularProgressIndicator
-// import androidx.wear.compose.material.Divider // Removed Divider import
-import androidx.wear.compose.material.MaterialTheme
+import androidx.wear.compose.material3.CircularProgressIndicator
+import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material.Scaffold
-import androidx.wear.compose.material.Text
-import androidx.wear.compose.material.TimeText
+import androidx.wear.compose.material3.Text
 import androidx.wear.tooling.preview.devices.WearDevices
 import by.iposdev.watchso.data.WebWorker
 import by.iposdev.watchso.presentation.theme.MitsoTestTheme
@@ -148,8 +148,8 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Text(message, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 12.dp), style = MaterialTheme.typography.body1)
-                    Button(onClick = { viewModel.fetchSchedule() }, colors = ButtonDefaults.primaryButtonColors()) { Text("Загрузить") }
+                    Text(message, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 12.dp), style = MaterialTheme.typography.bodyLarge)
+                    Button(onClick = { viewModel.fetchSchedule() }, colors = ButtonDefaults.buttonColors()) { Text("Загрузить") }
                     Chip(
                         onClick = { context.startActivity(Intent(context, AboutActivity::class.java)) },
                         label = { Text("О приложении") },
@@ -157,7 +157,7 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
                         colors = ChipDefaults.secondaryChipColors()
                     )
                     cacheInfo?.let {
-                        Text(text = it, style = MaterialTheme.typography.caption2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
+                        Text(text = it, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
                     }
                 }
             } else {
@@ -174,85 +174,55 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
                         )
                     }
 
-                    items(
-                        count = displaySchedule.size,
-                        key = { index -> displaySchedule[index].dayTitle } 
-                    ) { index ->
-                        val dayScheduleItem = displaySchedule[index]
-                        Card(
-                            onClick = { /* Explicitly provide an empty lambda */ }, 
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 10.dp, vertical = 8.dp) 
+                    displaySchedule.forEach { dayScheduleItem ->
+                        item {
+                            Text(
+                                text = dayScheduleItem.dayTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp, top = 8.dp)
+                            )
+                        }
+                        items(dayScheduleItem.lessons) { parsedLesson ->
+                            Card(
+                                onClick = { /* Static */ },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                             ) {
-                                Text(
-                                    dayScheduleItem.dayTitle,
-                                    style = MaterialTheme.typography.title3,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
-                                )
-                                for (parsedLesson in dayScheduleItem.lessons) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 3.dp, horizontal = 4.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        val timeStr = parsedLesson.time?.takeIf { it.isNotBlank() }
-                                        val subjectStr = parsedLesson.subject?.takeIf { it.isNotBlank() }
-                                        val roomStr = parsedLesson.room?.takeIf { it.isNotBlank() }
-
-                                        timeStr?.let {
-                                            Card(
-                                                onClick = { /* Static */ },
-                                                modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                                            ) {
-                                                Text(
-                                                    text = it,
-                                                    style = MaterialTheme.typography.caption1,
-                                                    textAlign = TextAlign.Center,
-                                                    modifier = Modifier.fillMaxWidth().padding(all = 4.dp)
-                                                )
-                                            }
-                                        }
-
-                                        subjectStr?.let {
-                                            Card(
-                                                onClick = { /* Static */ },
-                                                modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                                            ) {
-                                                Text(
-                                                    text = it,
-                                                    style = MaterialTheme.typography.body2,
-                                                    textAlign = TextAlign.Center,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    modifier = Modifier.fillMaxWidth().padding(all = 4.dp)
-                                                )
-                                            }
-                                        }
-
-                                        roomStr?.let {
-                                            Card(
-                                                onClick = { /* Static */ },
-                                                modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                                            ) {
-                                                Text(
-                                                    text = it,
-                                                    style = MaterialTheme.typography.caption1,
-                                                    textAlign = TextAlign.Center,
-                                                    modifier = Modifier.fillMaxWidth().padding(all = 4.dp)
-                                                )
-                                            }
-                                        }
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    parsedLesson.time?.let {
+                                        Text(
+                                            text = it,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                    parsedLesson.subject?.let {
+                                        Text(
+                                            text = it,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            textAlign = TextAlign.Center,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                        )
+                                    }
+                                    parsedLesson.room?.let {
+                                        Text(
+                                            text = it,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
                                     }
                                 }
                             }
                         }
                     }
+
                     item { Spacer(modifier = Modifier.height(10.dp)) }
                     item {
                         Chip(
@@ -265,7 +235,7 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
                     item { Spacer(modifier = Modifier.height(4.dp)) }
                     item {
                         cacheInfo?.let { info ->
-                            Text(text = info, style = MaterialTheme.typography.caption2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                            Text(text = info, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
                         }
                     }
                 }
@@ -298,83 +268,60 @@ fun WatchScheduleAppLoadedPreview() {
                  horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 item { Chip(onClick = {}, label = { Text("Обновить (Превью)") }, modifier = Modifier.fillMaxWidth(0.8f).padding(vertical = 4.dp)) }
-                items(
-                    count = sampleDisplaySchedule.size,
-                    key = { index -> sampleDisplaySchedule[index].dayTitle } 
-                ) { index -> 
-                    val dayScheduleItem = sampleDisplaySchedule[index] 
-                    Card(
-                        onClick = { /* Explicitly provide an empty lambda */ }, 
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                
+                sampleDisplaySchedule.forEach { dayScheduleItem ->
+                    item {
+                        Text(
+                            text = dayScheduleItem.dayTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp, top = 8.dp)
+                        )
+                    }
+                    items(dayScheduleItem.lessons) { parsedLesson ->
+                        Card(
+                            onClick = { /* Static */ },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                         ) {
-                            Text(dayScheduleItem.dayTitle, style = MaterialTheme.typography.title3, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp))
-                            for (parsedLesson in dayScheduleItem.lessons) { 
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 3.dp, horizontal = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    val timeStr = parsedLesson.time?.takeIf { it.isNotBlank() }
-                                    val subjectStr = parsedLesson.subject?.takeIf { it.isNotBlank() }
-                                    val roomStr = parsedLesson.room?.takeIf { it.isNotBlank() }
-
-                                    timeStr?.let {
-                                        Card(
-                                            onClick = { /* Static */ },
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                                        ) {
-                                            Text(
-                                                text = it,
-                                                style = MaterialTheme.typography.caption1,
-                                                textAlign = TextAlign.Center,
-                                                modifier = Modifier.fillMaxWidth().padding(all = 4.dp)
-                                            )
-                                        }
-                                    }
-
-                                    subjectStr?.let {
-                                        Card(
-                                            onClick = { /* Static */ },
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                                        ) {
-                                            Text(
-                                                text = it,
-                                                style = MaterialTheme.typography.body2,
-                                                textAlign = TextAlign.Center,
-                                                fontWeight = FontWeight.SemiBold,
-                                                modifier = Modifier.fillMaxWidth().padding(all = 4.dp)
-                                            )
-                                        }
-                                    }
-
-                                    roomStr?.let {
-                                        Card(
-                                            onClick = { /* Static */ },
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                                        ) {
-                                            Text(
-                                                text = it,
-                                                style = MaterialTheme.typography.caption1,
-                                                textAlign = TextAlign.Center,
-                                                modifier = Modifier.fillMaxWidth().padding(all = 4.dp)
-                                            )
-                                        }
-                                    }
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                parsedLesson.time?.let {
+                                    Text(
+                                        text = it,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                parsedLesson.subject?.let {
+                                    Text(
+                                        text = it,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        textAlign = TextAlign.Center,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                    )
+                                }
+                                parsedLesson.room?.let {
+                                    Text(
+                                        text = it,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
                                 }
                             }
                         }
                     }
                 }
+
                 item { Spacer(modifier = Modifier.height(10.dp)) }
                 item { Chip(onClick = { context.startActivity(Intent(context, AboutActivity::class.java)) }, label = { Text("О приложении") }, modifier = Modifier.fillMaxWidth(0.8f).padding(vertical = 2.dp), colors = ChipDefaults.secondaryChipColors()) }
                 item { Spacer(modifier = Modifier.height(4.dp)) }
-                item { Text(text = "Кэш (Тест): 01.01.2024 12:00", style = MaterialTheme.typography.caption2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) }
+                item { Text(text = "Кэш (Тест): 01.01.2024 12:00", style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) }
             }
         }
     }
@@ -391,10 +338,10 @@ fun WatchScheduleAppEmptyPreview() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text("Нет данных для отображения. Нажмите кнопку.", textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 12.dp), style = MaterialTheme.typography.body1)
+                Text("Нет данных для отображения. Нажмите кнопку.", textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 12.dp), style = MaterialTheme.typography.bodyLarge)
                 Button(onClick = { /* Preview */ }) { Text("Загрузить") }
                 Chip(onClick = { context.startActivity(Intent(context, AboutActivity::class.java)) }, label = { Text("О приложении") }, modifier = Modifier.padding(top = 10.dp), colors = ChipDefaults.secondaryChipColors())
-                Text("Кеш не найден", style = MaterialTheme.typography.caption2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
+                Text("Кеш не найден", style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
             }
         }
     }

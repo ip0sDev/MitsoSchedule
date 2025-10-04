@@ -17,13 +17,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
-import androidx.wear.compose.material.Card
+import androidx.wear.compose.material.TimeText
+import androidx.wear.compose.material3.Card
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
-import androidx.wear.compose.material.MaterialTheme
+import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material.Scaffold
-import androidx.wear.compose.material.Text
-import androidx.wear.compose.material.TimeText
+import androidx.wear.compose.material3.Text
 import by.iposdev.watchso.presentation.theme.MitsoTestTheme
 
 class AboutActivity : ComponentActivity() {
@@ -52,7 +52,7 @@ fun AboutScreen(onBackClicked: () -> Unit) { // onBackClicked теперь бу�
                 item {
                     Text(
                         text = "О приложении",
-                        style = MaterialTheme.typography.title2,
+                        style = MaterialTheme.typography.titleMedium,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
@@ -60,24 +60,24 @@ fun AboutScreen(onBackClicked: () -> Unit) { // onBackClicked теперь бу�
                 item {
                     Card(onClick = {}) {
                         Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-                            Text("Разработчик:", style = MaterialTheme.typography.caption1)
-                            Text("IposDev", style = MaterialTheme.typography.body1, fontWeight = FontWeight.Bold)
+                            Text("Разработчик:", style = MaterialTheme.typography.labelMedium)
+                            Text("IposDev", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
                 item {
                     Card(onClick = {}) {
                         Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-                            Text("Версия приложения:", style = MaterialTheme.typography.caption1)
-                            Text("0.0.1 ALPHA 1", style = MaterialTheme.typography.body1, fontWeight = FontWeight.Bold)
+                            Text("Версия приложения:", style = MaterialTheme.typography.labelMedium)
+                            Text("0.0.1 ALPHA 1", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
                 item {
                     Card(onClick = {}) {
                         Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-                            Text("Тех. поддержка:", style = MaterialTheme.typography.caption1)
-                            Text("TG @iposdev", style = MaterialTheme.typography.body1, fontWeight = FontWeight.Bold)
+                            Text("Тех. поддержка:", style = MaterialTheme.typography.labelMedium)
+                            Text("TG @iposdev", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
