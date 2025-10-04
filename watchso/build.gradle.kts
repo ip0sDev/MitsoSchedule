@@ -51,6 +51,7 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material.icons.extended)
 
     // НЕ ЭТИ стандартные Compose foundation/material, они для мобильного приложения
     // implementation(libs.androidx.compose.material) // Стандартный Material

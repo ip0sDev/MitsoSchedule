@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,12 +38,11 @@ import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.TimeText
-import androidx.wear.compose.material3.Button
-import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.Card
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material3.CircularProgressIndicator
+import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material3.Text
@@ -138,7 +141,7 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
         Scaffold(
             timeText = { TimeText(modifier = Modifier.padding(top = 6.dp)) }
         ) {
-            if (isLoading) {
+            if (isLoading && displaySchedule.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(modifier = Modifier.padding(16.dp))
                 }
@@ -149,11 +152,18 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(message, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 12.dp), style = MaterialTheme.typography.bodyLarge)
-                    Button(onClick = { viewModel.fetchSchedule() }, colors = ButtonDefaults.buttonColors()) { Text("Загрузить") }
+                    Chip(
+                        onClick = { viewModel.fetchSchedule() },
+                        label = { Text("Загрузить") },
+                        icon = { Icon(Icons.Default.CloudDownload, contentDescription = "Загрузить", modifier = Modifier.size(ChipDefaults.IconSize)) },
+                        colors = ChipDefaults.primaryChipColors(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     Chip(
                         onClick = { context.startActivity(Intent(context, AboutActivity::class.java)) },
                         label = { Text("О приложении") },
-                        modifier = Modifier.padding(top = 10.dp),
+                        icon = { Icon(Icons.Default.Info, contentDescription = "О приложении", modifier = Modifier.size(ChipDefaults.IconSize)) },
+                        modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
                         colors = ChipDefaults.secondaryChipColors()
                     )
                     cacheInfo?.let {
@@ -163,16 +173,9 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
             } else {
                 ScalingLazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    item {
-                        Chip(
-                            onClick = { viewModel.fetchSchedule() },
-                            label = { Text("Обновить") },
-                            modifier = Modifier.fillMaxWidth(0.8f).padding(vertical = 4.dp)
-                        )
-                    }
 
                     displaySchedule.forEach { dayScheduleItem ->
                         item {
@@ -181,7 +184,7 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp, top = 8.dp)
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp, top = 10.dp)
                             )
                         }
                         items(dayScheduleItem.lessons) { parsedLesson ->
@@ -191,13 +194,13 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
                             ) {
                                 Column(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
+                                    horizontalAlignment = Alignment.Start
                                 ) {
                                     parsedLesson.time?.let {
                                         Text(
                                             text = it,
                                             style = MaterialTheme.typography.labelMedium,
-                                            textAlign = TextAlign.Center,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                     }
@@ -205,16 +208,15 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
                                         Text(
                                             text = it,
                                             style = MaterialTheme.typography.bodyLarge,
-                                            textAlign = TextAlign.Center,
                                             fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
                                         )
                                     }
                                     parsedLesson.room?.let {
                                         Text(
                                             text = it,
                                             style = MaterialTheme.typography.labelMedium,
-                                            textAlign = TextAlign.Center,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                     }
@@ -226,9 +228,19 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
                     item { Spacer(modifier = Modifier.height(10.dp)) }
                     item {
                         Chip(
-                            onClick = { context.startActivity(Intent(context, AboutActivity::class.java)) }, 
+                            onClick = { viewModel.fetchSchedule() },
+                            label = { Text("Обновить") },
+                            icon = { Icon(Icons.Default.CloudDownload, contentDescription = "Обновить", modifier = Modifier.size(ChipDefaults.IconSize)) },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            colors = ChipDefaults.primaryChipColors()
+                        )
+                    }
+                    item {
+                        Chip(
+                            onClick = { context.startActivity(Intent(context, AboutActivity::class.java)) },
                             label = { Text("О приложении") },
-                            modifier = Modifier.fillMaxWidth(0.8f).padding(vertical = 2.dp),
+                            icon = { Icon(Icons.Default.Info, contentDescription = "О приложении", modifier = Modifier.size(ChipDefaults.IconSize)) },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                             colors = ChipDefaults.secondaryChipColors()
                         )
                     }
@@ -244,6 +256,8 @@ fun WatchScheduleApp(viewModel: MainViewModel = viewModel()) {
     }
 }
 
+// --- Previews updated for Material 3 --- 
+
 @Preview(device = WearDevices.SMALL_ROUND, showSystemUi = true, backgroundColor = 0xff000000, showBackground = true)
 @Composable
 fun WatchScheduleAppLoadedPreview() {
@@ -254,9 +268,7 @@ fun WatchScheduleAppLoadedPreview() {
         )),
         UiDaySchedule("Вторник (Превью)", listOf(
             ParsedLessonEntry("09.35-11.00", "Важная Лекция", "Зал А"),
-            ParsedLessonEntry(null, "Только предмет", null),
-            ParsedLessonEntry("12.50-14.15", null, "ауд.303"),
-            ParsedLessonEntry(null, null, "Только ауд.202")
+            ParsedLessonEntry(null, "Только предмет", null)
         ))
     )
     val context = LocalContext.current
@@ -264,11 +276,9 @@ fun WatchScheduleAppLoadedPreview() {
     MitsoTestTheme {
         Scaffold(timeText = { TimeText(modifier = Modifier.padding(top = 6.dp)) }) {
             ScalingLazyColumn(
-                 modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 4.dp),
+                 modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp),
                  horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                item { Chip(onClick = {}, label = { Text("Обновить (Превью)") }, modifier = Modifier.fillMaxWidth(0.8f).padding(vertical = 4.dp)) }
-                
                 sampleDisplaySchedule.forEach { dayScheduleItem ->
                     item {
                         Text(
@@ -276,7 +286,7 @@ fun WatchScheduleAppLoadedPreview() {
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp, top = 8.dp)
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp, top = 10.dp)
                         )
                     }
                     items(dayScheduleItem.lessons) { parsedLesson ->
@@ -286,32 +296,16 @@ fun WatchScheduleAppLoadedPreview() {
                         ) {
                             Column(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                horizontalAlignment = Alignment.Start
                             ) {
                                 parsedLesson.time?.let {
-                                    Text(
-                                        text = it,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
+                                    Text(text = it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 parsedLesson.subject?.let {
-                                    Text(
-                                        text = it,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        textAlign = TextAlign.Center,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                                    )
+                                    Text(text = it, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(vertical = 2.dp))
                                 }
                                 parsedLesson.room?.let {
-                                    Text(
-                                        text = it,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
+                                    Text(text = it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -319,7 +313,24 @@ fun WatchScheduleAppLoadedPreview() {
                 }
 
                 item { Spacer(modifier = Modifier.height(10.dp)) }
-                item { Chip(onClick = { context.startActivity(Intent(context, AboutActivity::class.java)) }, label = { Text("О приложении") }, modifier = Modifier.fillMaxWidth(0.8f).padding(vertical = 2.dp), colors = ChipDefaults.secondaryChipColors()) }
+                item {
+                    Chip(
+                        onClick = { /* Preview */ },
+                        label = { Text("Обновить") },
+                        icon = { Icon(Icons.Default.CloudDownload, "Обновить", modifier = Modifier.size(ChipDefaults.IconSize)) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        colors = ChipDefaults.primaryChipColors()
+                    )
+                }
+                item {
+                     Chip(
+                        onClick = { context.startActivity(Intent(context, AboutActivity::class.java)) },
+                        label = { Text("О приложении") },
+                        icon = { Icon(Icons.Default.Info, "О приложении", modifier = Modifier.size(ChipDefaults.IconSize)) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        colors = ChipDefaults.secondaryChipColors()
+                    )
+                }
                 item { Spacer(modifier = Modifier.height(4.dp)) }
                 item { Text(text = "Кэш (Тест): 01.01.2024 12:00", style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) }
             }
@@ -334,13 +345,25 @@ fun WatchScheduleAppEmptyPreview() {
     MitsoTestTheme {
          Scaffold(timeText = { TimeText(modifier = Modifier.padding(top = 6.dp)) }) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text("Нет данных для отображения. Нажмите кнопку.", textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 12.dp), style = MaterialTheme.typography.bodyLarge)
-                Button(onClick = { /* Preview */ }) { Text("Загрузить") }
-                Chip(onClick = { context.startActivity(Intent(context, AboutActivity::class.java)) }, label = { Text("О приложении") }, modifier = Modifier.padding(top = 10.dp), colors = ChipDefaults.secondaryChipColors())
+                Text("Нет данных для отображения.", textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 12.dp), style = MaterialTheme.typography.bodyLarge)
+                Chip(
+                    onClick = { /* Preview */ },
+                    label = { Text("Загрузить") },
+                    icon = { Icon(Icons.Default.CloudDownload, "Загрузить", modifier = Modifier.size(ChipDefaults.IconSize)) },
+                    colors = ChipDefaults.primaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Chip(
+                    onClick = { context.startActivity(Intent(context, AboutActivity::class.java)) },
+                    label = { Text("О приложении") },
+                    icon = { Icon(Icons.Default.Info, "О приложении", modifier = Modifier.size(ChipDefaults.IconSize)) },
+                    modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
+                    colors = ChipDefaults.secondaryChipColors()
+                )
                 Text("Кеш не найден", style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
             }
         }

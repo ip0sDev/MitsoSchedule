@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable // ДОБАВЛЕН ИМПОРТ
 import okhttp3.Cache // ADDED
+import okhttp3.CacheControl
 import okhttp3.FormBody
 import okhttp3.JavaNetCookieJar
 import okhttp3.CookieJar
@@ -159,7 +160,11 @@ class WebWorker(context: Context) { // ADDED context to constructor
     suspend fun getCSRFtoken(): String {
         return withContext(Dispatchers.IO) {
             Log.d(TAG, "Attempting to get CSRF token from: $mitsoSheduleURL")
-            val request = Request.Builder().url(mitsoSheduleURL).get().build()
+            val request = Request.Builder()
+                .url(mitsoSheduleURL)
+                .get()
+                .cacheControl(CacheControl.FORCE_NETWORK)
+                .build()
             try {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
