@@ -33,7 +33,7 @@ jobs:
           if ($gradleContent -match 'CHANNEL.*"\\?([a-zA-Z0-9_-]+)') {
               $channel = $Matches[1].Trim().ToLower()
           } else {
-              Write-Host "❌ ОШИБКА: Не удалось найти CHANNEL в app/build.gradle.kts"
+              Write-Host "[ERROR] Failed to find CHANNEL in app/build.gradle.kts"
               exit 1
           }
 
@@ -49,17 +49,16 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Auto Setup Android SDK & Licenses
+      - name: Auto Setup Android SDK
         run: |
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-          # Надежная папка внутри рабочего каталога раннера (NetworkService имеет туда 100% доступ)
           $sdkDir = "C:\actions-runner\_work\android-sdk"
           $latestToolsDir = "$sdkDir\cmdline-tools\latest"
 
           if (-not (Test-Path "$latestToolsDir\bin\sdkmanager.bat")) {
-              Write-Host "📥 Android SDK не обнаружен. Скачивание Command Line Tools от Google..."
+              Write-Host "[INFO] Android SDK not found. Downloading Command Line Tools..."
               $zipPath = Join-Path $env:RUNNER_TEMP "cmdline-tools.zip"
               $extractPath = Join-Path $env:RUNNER_TEMP "cmdline-temp"
 
@@ -69,50 +68,54 @@ jobs:
               $toolsUrl = "https://dl.google.com/android/repository/commandlinetools-win-12266719_latest.zip"
               curl.exe -fS -L $toolsUrl -o $zipPath
 
-              Write-Host "📦 Распаковка инструментов..."
+              Write-Host "[INFO] Extracting archive..."
               [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractPath)
 
-              New-Item -ItemType Directory -Force -Path "$sdkDir\cmdline-tools" | Out-Null
-              if (Test-Path $latestToolsDir) { Remove-Item -Recurse -Force $latestToolsDir }
-              Move-Item -Path "$extractPath\cmdline-tools" -Destination $latestToolsDir -Force
-
-              # Страховка на случай нестандартной вложенности внутри архива
-              if (-not (Test-Path "$latestToolsDir\bin\sdkmanager.bat")) {
-                  $subFolder = Get-ChildItem -Path $latestToolsDir -Directory -Filter "cmdline-tools" | Select-Object -First 1
-                  if ($subFolder) {
-                      Move-Item -Path "$($subFolder.FullName)\*" -Destination $latestToolsDir -Force
-                      Remove-Item -Recurse -Force $subFolder.FullName
-                  }
+              # Динамический поиск sdkmanager.bat внутри распакованного архива
+              $sdkManager = Get-ChildItem -Path $extractPath -Filter "sdkmanager.bat" -Recurse | Select-Object -First 1
+              if (-not $sdkManager) {
+                  Write-Host "[ERROR] sdkmanager.bat was not found in archive!"
+                  exit 1
               }
+              $sourceToolsDir = Split-Path $sdkManager.Directory.FullName -Parent
+
+              Write-Host "[INFO] Installing tools to $latestToolsDir..."
+              if (Test-Path $latestToolsDir) { Remove-Item -Recurse -Force $latestToolsDir }
+              New-Item -ItemType Directory -Force -Path $latestToolsDir | Out-Null
+              Copy-Item -Path "$sourceToolsDir\*" -Destination $latestToolsDir -Recurse -Force
 
               Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
               Remove-Item -Recurse -Force $extractPath -ErrorAction SilentlyContinue
-              Write-Host "✅ Command Line Tools успешно установлены в $latestToolsDir"
+
+              if (-not (Test-Path "$latestToolsDir\bin\sdkmanager.bat")) {
+                  Write-Host "[ERROR] Failed to install cmdline-tools to $latestToolsDir"
+                  exit 1
+              }
+              Write-Host "[OK] Command Line Tools successfully installed."
           } else {
-              Write-Host "⚡ Найден ранее установленный SDK: $sdkDir (пропуск скачивания)"
+              Write-Host "[OK] Android SDK already present at $sdkDir"
           }
 
-          Write-Host "✍️ Автоматическое принятие лицензий Android SDK..."
+          Write-Host "[INFO] Accepting Android SDK licenses..."
           $licenseDir = Join-Path $sdkDir "licenses"
           New-Item -ItemType Directory -Force -Path $licenseDir | Out-Null
 
-          $sdkLicenses = @"
-          24333f8a63b6825ea9c5514f83c2829b004d1fee
-          8933bad161af4178b1185d1a37fbf41ea5269c55
-          d56f5187479451eabf01fb78af6dfcb131a6481e
-          "@
-          Set-Content -Path (Join-Path $licenseDir "android-sdk-license") -Value $sdkLicenses.Trim()
+          $sdkLicenses = @(
+              "24333f8a63b6825ea9c5514f83c2829b004d1fee",
+              "8933bad161af4178b1185d1a37fbf41ea5269c55",
+              "d56f5187479451eabf01fb78af6dfcb131a6481e"
+          ) -join "`n"
+
+          Set-Content -Path (Join-Path $licenseDir "android-sdk-license") -Value $sdkLicenses
           Set-Content -Path (Join-Path $licenseDir "android-sdk-preview-license") -Value "84831b9409646a918e30573bab4c9c91346d8abd"
           Set-Content -Path (Join-Path $licenseDir "android-googletv-license") -Value "601085b94cd77f0b54ff86406955449fac3adfb4"
           Set-Content -Path (Join-Path $licenseDir "android-sdk-arm-dbt-license") -Value "859f317696e35e8d16fb85ee0da77f4b58773f7a"
 
-          # Запись local.properties (Gradle требует прямые слэши '/')
           $cleanPath = $sdkDir -replace '\\', '/'
           $localPropsPath = Join-Path $PWD "local.properties"
           Set-Content -Path $localPropsPath -Value "sdk.dir=$cleanPath"
-          Write-Host "✅ Создан local.properties: sdk.dir=$cleanPath"
+          Write-Host "[OK] Configured local.properties: sdk.dir=$cleanPath"
 
-          # Экспорт переменных окружения в пайплайн
           $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
           [System.IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_HOME=$sdkDir`n", $utf8NoBom)
           [System.IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_SDK_ROOT=$sdkDir`n", $utf8NoBom)
@@ -229,10 +232,10 @@ jobs:
           Write-Host "Server HTTP Status: $httpStatus"
 
           if ($httpStatus -eq "200" -or $httpStatus -eq "201") {
-              Write-Host "✅ Успешно загружено на сервер обновлений!"
+              Write-Host "[OK] Successfully uploaded to update server!"
               if (Test-Path $responseFile) { Get-Content $responseFile }
           } else {
-              Write-Host "❌ Ошибка загрузки (HTTP Status: $httpStatus)"
+              Write-Host "[ERROR] Upload failed with HTTP Status: $httpStatus"
               if (Test-Path $responseFile) { Get-Content $responseFile }
               exit 1
           }
