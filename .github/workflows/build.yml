@@ -28,10 +28,10 @@ jobs:
       - name: Extract Channel from BuildConfig
         id: get_channel
         run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           $gradleContent = Get-Content "app/build.gradle.kts" -Raw
-          if ($gradleContent -match 'buildConfigField\("String",\s*"CHANNEL",\s*"([^"]+)"\)') {
-              $rawChannel = $Matches[1].Trim()
-              $channel = $rawChannel.ToLower()
+          if ($gradleContent -match 'CHANNEL.*"\\?([a-zA-Z0-9_-]+)') {
+              $channel = $Matches[1].Trim().ToLower()
           } else {
               Write-Host "❌ ОШИБКА: Не удалось найти CHANNEL в app/build.gradle.kts"
               exit 1
