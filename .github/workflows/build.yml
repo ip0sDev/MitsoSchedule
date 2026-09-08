@@ -49,67 +49,17 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK Path and local.properties
+      # Автоматическое скачивание SDK и принятие лицензий
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Синхронизация local.properties с автоматически установленным SDK
+      - name: Sync local.properties with installed SDK
         run: |
-            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-            $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-            
-            Write-Host "Поиск установленного Android SDK..."
-            
-            $candidates = @(
-                $env:ANDROID_HOME,
-                $env:ANDROID_SDK_ROOT,
-                "$env:LOCALAPPDATA\Android\Sdk",
-                "C:\Android\Sdk",
-                "C:\Android\sdk",
-                "D:\Android\Sdk",
-                "D:\Android\sdk",
-                "C:\Android-SDK"
-            )
-            
-            # Поиск в AppData всех пользователей на диске C:
-            $userSdkPaths = Get-ChildItem -Path "C:\Users\*\AppData\Local\Android\Sdk" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
-            if ($userSdkPaths) { $candidates += $userSdkPaths }
-            
-            # Поиск пути из реестра Windows (если ставился через Android Studio)
-            $regStudio = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Android Studio" -ErrorAction SilentlyContinue).SdkPath
-            if ($regStudio) { $candidates += $regStudio }
-            
-            # Поиск по расположению adb.exe (если добавлен в PATH)
-            $adbCmd = Get-Command "adb.exe" -ErrorAction SilentlyContinue
-            if ($adbCmd) {
-                $candidates += (Split-Path (Split-Path $adbCmd.Source -Parent) -Parent)
-            }
-            
-            $resolvedSdk = $null
-            foreach ($path in $candidates) {
-                if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path $path)) {
-                    $resolvedSdk = (Resolve-Path $path).Path
-                    break
-                }
-            }
-            
-            if (-not $resolvedSdk) {
-                Write-Host "❌ КРИТИЧЕСКАЯ ОШИБКА: Android SDK не найден ни по одному из путей!" -ForegroundColor Red
-                Write-Host "Диагностика окружения раннера:"
-                Write-Host "  Текущий пользователь раннера : $(whoami)"
-                Write-Host "  Пользователи в C:\Users      : $((Get-ChildItem C:\Users -Directory -ErrorAction SilentlyContinue).Name -join ', ')"
-                Write-Host "  Значение `$env:ANDROID_HOME  : $env:ANDROID_HOME"
-                exit 1
-            }
-            
-            Write-Host "✅ Найден валидный Android SDK: $resolvedSdk"
-            
-            # В local.properties путь должен быть с прямыми слэшами (/)
-            $escapedPath = $resolvedSdk -replace '\\', '/'
-            $localPropsPath = Join-Path $PWD "local.properties"
-            
-            [System.IO.File]::WriteAllText($localPropsPath, "sdk.dir=$escapedPath`n", $utf8NoBom)
-            [System.IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_HOME=$resolvedSdk`n", $utf8NoBom)
-            [System.IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_SDK_ROOT=$resolvedSdk`n", $utf8NoBom)
-            
-            Write-Host "--- local.properties ---"
-            Get-Content $localPropsPath
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          $cleanPath = $env:ANDROID_HOME -replace '\\', '/'
+          Set-Content -Path "local.properties" -Value "sdk.dir=$cleanPath"
+          Write-Host "✅ Configured local.properties: sdk.dir=$cleanPath"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
