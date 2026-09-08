@@ -20,12 +20,12 @@ android {
         applicationId = "mitsoschedule.app"
         minSdk = 31
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.1"
+        versionCode = 2
+        versionName = "1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val channelOverride = (project.findProperty("CHANNEL") as? String) ?: System.getenv("CHANNEL")
+        val channelOverride = "release"
         if (!channelOverride.isNullOrBlank()) {
             buildConfigField("String", "CHANNEL", "\"$channelOverride\"")
         } else {
