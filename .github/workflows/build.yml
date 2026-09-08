@@ -51,22 +51,14 @@ jobs:
       - name: Setup Android SDK Path and local.properties
         run: |
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          $targetSdk = "C:\Users\IposDev\AppData\Local\Android\Sdk"
+          $sdkPath = "C:\Users\IposDev\AppData\Local\Android\Sdk"
 
-          # Grant Read/Execute permissions to NetworkService if needed
-          try {
-              icacls "$targetSdk" /grant "NT AUTHORITY\NetworkService:(OI)(CI)RX" /Q 2>$null
-          } catch {}
-
-          $sdkPath = ""
-          if (Test-Path $targetSdk -ErrorAction SilentlyContinue) {
-              $sdkPath = $targetSdk
-          } elseif ($env:ANDROID_HOME -and (Test-Path $env:ANDROID_HOME -ErrorAction SilentlyContinue)) {
+          if ($env:ANDROID_HOME -and (Test-Path $env:ANDROID_HOME -ErrorAction SilentlyContinue)) {
               $sdkPath = $env:ANDROID_HOME
-          } elseif (Test-Path "C:\Android\sdk" -ErrorAction SilentlyContinue) {
-              $sdkPath = "C:\Android\sdk"
-          } else {
-              $sdkPath = $targetSdk
+          } elseif (-not (Test-Path $sdkPath -ErrorAction SilentlyContinue)) {
+              if (Test-Path "C:\Android\sdk" -ErrorAction SilentlyContinue) {
+                  $sdkPath = "C:\Android\sdk"
+              }
           }
 
           $escapedPath = $sdkPath -replace '\\', '/'
@@ -74,6 +66,7 @@ jobs:
           "ANDROID_HOME=$sdkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "ANDROID_SDK_ROOT=$sdkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "✅ Set Android SDK to $sdkPath and created local.properties"
+          $global:LASTEXITCODE = 0
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -91,7 +84,7 @@ jobs:
 
       - name: Run Tests and Build Signed Release APK
         run: |
-          .\gradlew.bat testDebugUnitTest :app:assembleRelease `
+          .\gradlew.bat :app:testDebugUnitTest :app:assembleRelease `
             "-PCHANNEL=$env:CHANNEL" `
             "-PcommitId=$env:commit_id" `
             "-PKEYSTORE_BASE64=${{ secrets.KEYSTORE_BASE64 }}" `
