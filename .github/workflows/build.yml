@@ -17,7 +17,7 @@ jobs:
 
     defaults:
       run:
-        shell: bash
+        shell: powershell
 
     steps:
       - name: Checkout
@@ -28,18 +28,19 @@ jobs:
       - name: Extract Channel from BuildConfig
         id: get_channel
         run: |
-          RAW_CHANNEL=$(grep 'buildConfigField("String", "CHANNEL"' app/build.gradle.kts | head -n 1 | sed -E 's/.*"CHANNEL",\s*"([^"]+)".*/\1/')
-          CHANNEL=$(echo "$RAW_CHANNEL" | tr '[:upper:]' '[:lower:]')
+          $gradleContent = Get-Content "app/build.gradle.kts" -Raw
+          if ($gradleContent -match 'buildConfigField\("String",\s*"CHANNEL",\s*"([^"]+)"\)') {
+              $rawChannel = $Matches[1].Trim()
+              $channel = $rawChannel.ToLower()
+          } else {
+              Write-Host "❌ ОШИБКА: Не удалось найти CHANNEL в app/build.gradle.kts"
+              exit 1
+          }
 
-          if [ -z "$CHANNEL" ]; then
-            echo "❌ ОШИБКА: Не удалось найти CHANNEL в app/build.gradle.kts"
-            exit 1
-          fi
-
-          echo "CHANNEL=$CHANNEL" >> $GITHUB_ENV
-          CHANNEL_CAP="$(tr '[:lower:]' '[:upper:]' <<< ${CHANNEL:0:1})${CHANNEL:1}"
-          echo "CHANNEL_CAP=$CHANNEL_CAP" >> $GITHUB_ENV
-          echo "Extracted CHANNEL from app/build.gradle.kts: $CHANNEL"
+          "CHANNEL=$channel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $channelCap = (Get-Culture).TextInfo.ToTitleCase($channel)
+          "CHANNEL_CAP=$channelCap" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Extracted CHANNEL from app/build.gradle.kts: $channel"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -56,47 +57,44 @@ jobs:
       - name: Get commit info
         id: commit
         run: |
-          COMMIT_ID=$(git rev-parse --short HEAD)
-          echo "commit_id=$COMMIT_ID" >> $GITHUB_OUTPUT
+          $commitId = (git rev-parse --short HEAD).Trim()
+          "commit_id=$commitId" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-          CHANGELOG=$(git log -1 --pretty=format:"%s" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+          $rawChangelog = (git log -1 --pretty=format:"%s").Trim()
+          $changelog = $rawChangelog -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;'
 
-          {
-            echo "changelog<<EOF"
-            echo "$CHANGELOG"
-            echo "EOF"
-          } >> $GITHUB_OUTPUT
+          @("changelog<<EOF", $changelog, "EOF") | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Run Tests and Build Signed Release APK
         run: |
-          ./gradlew testDebugUnitTest :app:assembleRelease \
-            -PCHANNEL="${{ env.CHANNEL }}" \
-            -PcommitId="${{ steps.commit.outputs.commit_id }}" \
-            -PKEYSTORE_BASE64="${{ secrets.KEYSTORE_BASE64 }}" \
-            -PKEY_ALIAS="${{ secrets.KEY_ALIAS }}" \
-            -PKEYSTORE_PASSWORD="${{ secrets.KEYSTORE_PASSWORD }}" \
-            -PKEY_PASSWORD="${{ secrets.KEY_PASSWORD }}" \
-            --parallel \
+          .\gradlew.bat testDebugUnitTest :app:assembleRelease `
+            "-PCHANNEL=$env:CHANNEL" `
+            "-PcommitId=$env:commit_id" `
+            "-PKEYSTORE_BASE64=${{ secrets.KEYSTORE_BASE64 }}" `
+            "-PKEY_ALIAS=${{ secrets.KEY_ALIAS }}" `
+            "-PKEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" `
+            "-PKEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" `
+            --parallel `
             --build-cache
 
       - name: Prepare & Rename Signed APK
         run: |
-          APK_SRC="app/build/outputs/apk/release/app-release.apk"
-          APK_NAME="iposstore-${CHANNEL}-${{ steps.commit.outputs.commit_id }}.apk"
-          APK_DEST="app/build/outputs/apk/release/$APK_NAME"
+          $apkSrc = "app/build/outputs/apk/release/app-release.apk"
+          $apkName = "iposstore-$env:CHANNEL-$env:commit_id.apk"
+          $apkDest = "app/build/outputs/apk/release/$apkName"
 
-          if [ -f "$APK_SRC" ]; then
-            mv "$APK_SRC" "$APK_DEST"
-          else
-            FOUND_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-            if [ -n "$FOUND_APK" ]; then
-              mv "$FOUND_APK" "$APK_DEST"
-            fi
-          fi
+          if (Test-Path $apkSrc) {
+              Move-Item -Path $apkSrc -Destination $apkDest -Force
+          } else {
+              $foundApk = Get-ChildItem -Path "app/build/outputs/apk/release" -Filter "*.apk" | Select-Object -First 1
+              if ($foundApk) {
+                  Move-Item -Path $foundApk.FullName -Destination $apkDest -Force
+              }
+          }
 
-          echo "APK_PATH=$APK_DEST" >> $GITHUB_ENV
-          echo "APK_NAME=$APK_NAME" >> $GITHUB_ENV
-          echo "APK Path: $APK_DEST"
+          "APK_PATH=$apkDest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "APK_NAME=$apkName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "APK Path: $apkDest"
 
       - name: Upload APK to Custom Updater API
         env:
@@ -106,45 +104,51 @@ jobs:
           CF_CLIENT_SECRET: ${{ secrets.CF_CLIENT_SECRET }}
           CHANGELOG_TEXT: ${{ steps.commit.outputs.changelog }}
         run: |
-          SERVER_URL_CLEAN="${SERVER_URL%/}"
-          if [[ "$SERVER_URL_CLEAN" == http://* ]]; then
-            SERVER_URL_CLEAN="https://${SERVER_URL_CLEAN#http://}"
-          elif [[ "$SERVER_URL_CLEAN" != https://* ]]; then
-            SERVER_URL_CLEAN="https://$SERVER_URL_CLEAN"
-          fi
+          $serverUrl = $env:SERVER_URL.TrimEnd('/')
+          if (-not ($serverUrl.StartsWith('http://') -or $serverUrl.StartsWith('https://'))) {
+              $serverUrl = "https://$serverUrl"
+          }
 
-          RESPONSE_FILE="${RUNNER_TEMP}/response.json"
+          $responseFile = Join-Path $env:RUNNER_TEMP "response.json"
+          $uploadUrl = "$serverUrl/api/upload"
 
-          echo "Uploading $APK_PATH to $SERVER_URL_CLEAN/api/upload (Channel: $CHANNEL)..."
-          
-          HTTP_STATUS=$(curl -sS -L --post301 --post302 -o "$RESPONSE_FILE" -w "%{http_code}" \
-            -A "IposStore-CI-Bot/1.0" \
-            -X POST "$SERVER_URL_CLEAN/api/upload" \
-            -H "X-API-Key: $API_KEY" \
-            -H "CF-Access-Client-Id: $CF_CLIENT_ID" \
-            -H "CF-Access-Client-Secret: $CF_CLIENT_SECRET" \
-            -F "file=@${APK_PATH}" \
-            -F "channel=${CHANNEL}" \
-            -F "changelog=${CHANGELOG_TEXT}" || echo "000")
-            
-          echo "Server HTTP Status: $HTTP_STATUS"
+          Write-Host "Uploading $env:APK_PATH to $uploadUrl (Channel: $env:CHANNEL)..."
 
-          if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "201" ]; then
-            echo "✅ Успешно загружено на сервер обновлений!"
-            if [ -f "$RESPONSE_FILE" ]; then
-              cat "$RESPONSE_FILE"
-            fi
-          else
-            echo "❌ Ошибка загрузки (HTTP Status: $HTTP_STATUS)"
-            if [ -f "$RESPONSE_FILE" ]; then
-              cat "$RESPONSE_FILE"
-            fi
-            exit 1
-          fi
+          $headers = @{
+              "X-API-Key" = $env:API_KEY
+              "User-Agent" = "IposStore-CI-Bot/1.0"
+          }
+          if ($env:CF_CLIENT_ID) { $headers["CF-Access-Client-Id"] = $env:CF_CLIENT_ID }
+          if ($env:CF_CLIENT_SECRET) { $headers["CF-Access-Client-Secret"] = $env:CF_CLIENT_SECRET }
+
+          $curlPath = "curl.exe"
+          $headerArgs = @()
+          foreach ($h in $headers.Keys) {
+              if (-not [string]::IsNullOrWhiteSpace($headers[$h])) {
+                  $headerArgs += "-H"
+                  $headerArgs += "$h: $($headers[$h])"
+              }
+          }
+
+          $curlArgs = @("-sS", "-L", "--post301", "--post302", "-o", $responseFile, "-w", "%{http_code}") +
+                      $headerArgs +
+                      @("-F", "file=@$($env:APK_PATH)", "-F", "channel=$($env:CHANNEL)", "-F", "changelog=$($env:CHANGELOG_TEXT)", $uploadUrl)
+
+          $httpStatus = & $curlPath @curlArgs
+          Write-Host "Server HTTP Status: $httpStatus"
+
+          if ($httpStatus -eq "200" -or $httpStatus -eq "201") {
+              Write-Host "✅ Успешно загружено на сервер обновлений!"
+              if (Test-Path $responseFile) { Get-Content $responseFile }
+          } else {
+              Write-Host "❌ Ошибка загрузки (HTTP Status: $httpStatus)"
+              if (Test-Path $responseFile) { Get-Content $responseFile }
+              exit 1
+          }
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: iposstore-${{ env.CHANNEL }}-${{ steps.commit.outputs.commit_id }}
+          name: iposstore-${{ env.CHANNEL }}-${{ env.commit_id }}
           path: ${{ env.APK_PATH }}
           retention-days: 7
