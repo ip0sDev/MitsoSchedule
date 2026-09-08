@@ -49,17 +49,75 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # Автоматическое скачивание SDK и принятие лицензий
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      # Синхронизация local.properties с автоматически установленным SDK
-      - name: Sync local.properties with installed SDK
+      - name: Auto Setup Android SDK & Licenses
         run: |
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          $cleanPath = $env:ANDROID_HOME -replace '\\', '/'
-          Set-Content -Path "local.properties" -Value "sdk.dir=$cleanPath"
-          Write-Host "✅ Configured local.properties: sdk.dir=$cleanPath"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+          # Надежная папка внутри рабочего каталога раннера (NetworkService имеет туда 100% доступ)
+          $sdkDir = "C:\actions-runner\_work\android-sdk"
+          $latestToolsDir = "$sdkDir\cmdline-tools\latest"
+
+          if (-not (Test-Path "$latestToolsDir\bin\sdkmanager.bat")) {
+              Write-Host "📥 Android SDK не обнаружен. Скачивание Command Line Tools от Google..."
+              $zipPath = Join-Path $env:RUNNER_TEMP "cmdline-tools.zip"
+              $extractPath = Join-Path $env:RUNNER_TEMP "cmdline-temp"
+
+              if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
+              if (Test-Path $extractPath) { Remove-Item -Recurse -Force $extractPath }
+
+              $toolsUrl = "https://dl.google.com/android/repository/commandlinetools-win-12266719_latest.zip"
+              curl.exe -fS -L $toolsUrl -o $zipPath
+
+              Write-Host "📦 Распаковка инструментов..."
+              [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractPath)
+
+              New-Item -ItemType Directory -Force -Path "$sdkDir\cmdline-tools" | Out-Null
+              if (Test-Path $latestToolsDir) { Remove-Item -Recurse -Force $latestToolsDir }
+              Move-Item -Path "$extractPath\cmdline-tools" -Destination $latestToolsDir -Force
+
+              # Страховка на случай нестандартной вложенности внутри архива
+              if (-not (Test-Path "$latestToolsDir\bin\sdkmanager.bat")) {
+                  $subFolder = Get-ChildItem -Path $latestToolsDir -Directory -Filter "cmdline-tools" | Select-Object -First 1
+                  if ($subFolder) {
+                      Move-Item -Path "$($subFolder.FullName)\*" -Destination $latestToolsDir -Force
+                      Remove-Item -Recurse -Force $subFolder.FullName
+                  }
+              }
+
+              Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
+              Remove-Item -Recurse -Force $extractPath -ErrorAction SilentlyContinue
+              Write-Host "✅ Command Line Tools успешно установлены в $latestToolsDir"
+          } else {
+              Write-Host "⚡ Найден ранее установленный SDK: $sdkDir (пропуск скачивания)"
+          }
+
+          Write-Host "✍️ Автоматическое принятие лицензий Android SDK..."
+          $licenseDir = Join-Path $sdkDir "licenses"
+          New-Item -ItemType Directory -Force -Path $licenseDir | Out-Null
+
+          $sdkLicenses = @"
+          24333f8a63b6825ea9c5514f83c2829b004d1fee
+          8933bad161af4178b1185d1a37fbf41ea5269c55
+          d56f5187479451eabf01fb78af6dfcb131a6481e
+          "@
+          Set-Content -Path (Join-Path $licenseDir "android-sdk-license") -Value $sdkLicenses.Trim()
+          Set-Content -Path (Join-Path $licenseDir "android-sdk-preview-license") -Value "84831b9409646a918e30573bab4c9c91346d8abd"
+          Set-Content -Path (Join-Path $licenseDir "android-googletv-license") -Value "601085b94cd77f0b54ff86406955449fac3adfb4"
+          Set-Content -Path (Join-Path $licenseDir "android-sdk-arm-dbt-license") -Value "859f317696e35e8d16fb85ee0da77f4b58773f7a"
+
+          # Запись local.properties (Gradle требует прямые слэши '/')
+          $cleanPath = $sdkDir -replace '\\', '/'
+          $localPropsPath = Join-Path $PWD "local.properties"
+          Set-Content -Path $localPropsPath -Value "sdk.dir=$cleanPath"
+          Write-Host "✅ Создан local.properties: sdk.dir=$cleanPath"
+
+          # Экспорт переменных окружения в пайплайн
+          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_HOME=$sdkDir`n", $utf8NoBom)
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_SDK_ROOT=$sdkDir`n", $utf8NoBom)
+          [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$latestToolsDir\bin`n", $utf8NoBom)
+          [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$sdkDir\platform-tools`n", $utf8NoBom)
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
