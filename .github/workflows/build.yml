@@ -93,21 +93,31 @@ jobs:
           [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, $changelogBlock, $utf8NoBom)
 
       - name: Run Tests and Build Signed Release APK
-          run: |
-            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-            Write-Host "Verify ANDROID_HOME=$env:ANDROID_HOME"
-            Write-Host "Verify local.properties:"
-            Get-Content "local.properties"
-            
-            .\gradlew.bat :app:testDebugUnitTest :app:assembleRelease `
-              "-PCHANNEL=$env:CHANNEL" `
-              "-PcommitId=$env:commit_id" `
-              "-PKEYSTORE_BASE64=${{ secrets.KEYSTORE_BASE64 }}" `
-              "-PKEY_ALIAS=${{ secrets.KEY_ALIAS }}" `
-              "-PKEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" `
-              "-PKEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" `
-              --parallel `
-              --build-cache
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          Write-Host "Verify ANDROID_HOME=$env:ANDROID_HOME"
+          Write-Host "Verify local.properties:"
+          Get-Content "local.properties"
+
+          $gradleArgs = @(
+              ":app:testDebugUnitTest",
+              ":app:assembleRelease",
+              "-PCHANNEL=$env:CHANNEL",
+              "-PcommitId=$env:commit_id",
+              "-PKEYSTORE_BASE64=$env:KEYSTORE_BASE64",
+              "-PKEY_ALIAS=$env:KEY_ALIAS",
+              "-PKEYSTORE_PASSWORD=$env:KEYSTORE_PASSWORD",
+              "-PKEY_PASSWORD=$env:KEY_PASSWORD",
+              "--parallel",
+              "--build-cache"
+          )
+
+          .\gradlew.bat @gradleArgs
 
       - name: Prepare & Rename Signed APK
         run: |
