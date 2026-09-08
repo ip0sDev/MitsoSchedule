@@ -37,9 +37,10 @@ jobs:
               exit 1
           }
 
-          "CHANNEL=$channel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "CHANNEL=$channel`n", $utf8NoBom)
           $channelCap = (Get-Culture).TextInfo.ToTitleCase($channel)
-          "CHANNEL_CAP=$channelCap" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "CHANNEL_CAP=$channelCap`n", $utf8NoBom)
           Write-Host "Extracted CHANNEL from app/build.gradle.kts: $channel"
 
       - name: Set up JDK 17
@@ -51,6 +52,7 @@ jobs:
       - name: Setup Android SDK Path and local.properties
         run: |
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
           $sdkPath = "C:\Users\IposDev\AppData\Local\Android\Sdk"
 
           if ($env:ANDROID_HOME -and (Test-Path $env:ANDROID_HOME -ErrorAction SilentlyContinue)) {
@@ -62,10 +64,14 @@ jobs:
           }
 
           $escapedPath = $sdkPath -replace '\\', '/'
-          "sdk.dir=$escapedPath" | Out-File -FilePath "local.properties" -Encoding utf8 -Force
-          "ANDROID_HOME=$sdkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "ANDROID_SDK_ROOT=$sdkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $localPropsPath = Join-Path $PWD "local.properties"
+          [System.IO.File]::WriteAllText($localPropsPath, "sdk.dir=$escapedPath`n", $utf8NoBom)
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_HOME=$sdkPath`n", $utf8NoBom)
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_SDK_ROOT=$sdkPath`n", $utf8NoBom)
+
           Write-Host "✅ Set Android SDK to $sdkPath and created local.properties"
+          Write-Host "--- local.properties content ---"
+          Get-Content $localPropsPath
           $global:LASTEXITCODE = 0
 
       - name: Setup Gradle
@@ -74,16 +80,25 @@ jobs:
       - name: Get commit info
         id: commit
         run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+
           $commitId = (git rev-parse --short HEAD).Trim()
-          "commit_id=$commitId" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, "commit_id=$commitId`n", $utf8NoBom)
 
           $rawChangelog = (git log -1 --pretty=format:"%s").Trim()
           $changelog = $rawChangelog -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;'
 
-          @("changelog<<EOF", $changelog, "EOF") | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $changelogBlock = "changelog<<EOF`n$changelog`nEOF`n"
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, $changelogBlock, $utf8NoBom)
 
       - name: Run Tests and Build Signed Release APK
         run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          Write-Host "Verify ANDROID_HOME=$env:ANDROID_HOME"
+          Write-Host "Verify local.properties:"
+          Get-Content "local.properties"
+
           .\gradlew.bat :app:testDebugUnitTest :app:assembleRelease `
             "-PCHANNEL=$env:CHANNEL" `
             "-PcommitId=$env:commit_id" `
@@ -91,11 +106,14 @@ jobs:
             "-PKEY_ALIAS=${{ secrets.KEY_ALIAS }}" `
             "-PKEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" `
             "-PKEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" `
-            --parallel `
+            --parallel \
             --build-cache
 
       - name: Prepare & Rename Signed APK
         run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+
           $apkSrc = "app/build/outputs/apk/release/app-release.apk"
           $apkName = "iposstore-$env:CHANNEL-$env:commit_id.apk"
           $apkDest = "app/build/outputs/apk/release/$apkName"
@@ -109,8 +127,8 @@ jobs:
               }
           }
 
-          "APK_PATH=$apkDest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "APK_NAME=$apkName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "APK_PATH=$apkDest`n", $utf8NoBom)
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "APK_NAME=$apkName`n", $utf8NoBom)
           Write-Host "APK Path: $apkDest"
 
       - name: Upload APK to Custom Updater API
@@ -121,6 +139,7 @@ jobs:
           CF_CLIENT_SECRET: ${{ secrets.CF_CLIENT_SECRET }}
           CHANGELOG_TEXT: ${{ steps.commit.outputs.changelog }}
         run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           $serverUrl = $env:SERVER_URL.TrimEnd('/')
           if (-not ($serverUrl.StartsWith('http://') -or $serverUrl.StartsWith('https://'))) {
               $serverUrl = "https://$serverUrl"
