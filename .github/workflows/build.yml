@@ -48,8 +48,21 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Ensure Android SDK
+        run: |
+          if (-not $env:ANDROID_HOME) {
+              if (Test-Path "$env:LOCALAPPDATA\Android\Sdk") {
+                  "ANDROID_HOME=$env:LOCALAPPDATA\Android\Sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+                  "ANDROID_SDK_ROOT=$env:LOCALAPPDATA\Android\Sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+                  Write-Host "Set ANDROID_HOME to $env:LOCALAPPDATA\Android\Sdk"
+              } elseif (Test-Path "C:\Android\sdk") {
+                  "ANDROID_HOME=C:\Android\sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+                  "ANDROID_SDK_ROOT=C:\Android\sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+                  Write-Host "Set ANDROID_HOME to C:\Android\sdk"
+              }
+          } else {
+              Write-Host "ANDROID_HOME is already set: $env:ANDROID_HOME"
+          }
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
