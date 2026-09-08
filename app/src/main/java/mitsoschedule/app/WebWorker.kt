@@ -1,8 +1,15 @@
-package by.iposdev.watchso.data
+package mitsoschedule.app
 
-import android.content.Context
 import android.util.Log
+import mitsoschedule.app.data.DaySchedule
+import mitsoschedule.app.data.DepDropResponse
+import mitsoschedule.app.data.Lesson
+import mitsoschedule.app.data.OptionItem
+import mitsoschedule.app.data.UserSelection
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -13,6 +20,7 @@ import okhttp3.JavaNetCookieJar
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
+import java.io.IOException
 import java.net.CookieManager
 import java.net.CookiePolicy
 import java.security.cert.X509Certificate
@@ -21,12 +29,11 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
-class WebWorker(context: Context? = null) {
+class WebWorker {
 
     private val client: OkHttpClient
-    private val TAG = "WatchWebWorker"
-    private var cachedCsrfToken: String = ""
-    private val jsonParser = Json { ignoreUnknownKeys = true }
+    private val TAG = "WebWorker"
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
     private val baseUrl = "https://apps.mitso.by/frontend/web/schedule"
     private val groupScheduleUrl = "$baseUrl/group-schedule"
@@ -58,6 +65,8 @@ class WebWorker(context: Context? = null) {
             .build()
     }
 
+    private var cachedCsrfToken: String = ""
+
     suspend fun getCSRFTokenAndFaculties(): Pair<String, List<OptionItem>> {
         return withContext(Dispatchers.IO) {
             try {
@@ -67,7 +76,7 @@ class WebWorker(context: Context? = null) {
                         Log.e(TAG, "getCSRFTokenAndFaculties failed: ${response.code}")
                         return@withContext Pair("", emptyList())
                     }
-                    val html = response.body?.string() ?: ""
+                    val html = response.body.string()
                     val doc = Jsoup.parse(html)
                     val token = doc.select("meta[name=csrf-token]").attr("content")
                     cachedCsrfToken = token
@@ -105,7 +114,6 @@ class WebWorker(context: Context? = null) {
                 val request = Request.Builder()
                     .url(url)
                     .post(formBuilder.build())
-                    .addHeader("X-Requested-With", "XMLHttpRequest")
                     .build()
 
                 client.newCall(request).execute().use { response ->
@@ -113,7 +121,7 @@ class WebWorker(context: Context? = null) {
                         Log.e(TAG, "DepDrop request to $url failed: ${response.code}")
                         return@withContext emptyList()
                     }
-                    val responseBody = response.body?.string() ?: ""
+                    val responseBody = response.body.string()
                     parseDepDropJson(responseBody)
                 }
             } catch (e: Exception) {
@@ -125,7 +133,7 @@ class WebWorker(context: Context? = null) {
 
     fun parseDepDropJson(jsonString: String): List<OptionItem> {
         return try {
-            val jsonElement = jsonParser.parseToJsonElement(jsonString)
+            val jsonElement = json.parseToJsonElement(jsonString)
             val outputArray = jsonElement.jsonObject["output"]?.jsonArray
             outputArray?.mapNotNull { itemElement ->
                 val obj = itemElement.jsonObject
@@ -158,20 +166,89 @@ class WebWorker(context: Context? = null) {
         return postDepDrop("$baseUrl/week", listOf(facultyId, formId, courseId, groupId))
     }
 
-    suspend fun fetchScheduleForWeeks(selection: UserSelection, weekIds: List<String>): List<DaySchedule> {
-        val combined = mutableListOf<DaySchedule>()
-        val seenDayTitles = mutableSetOf<String>()
+    data class ScheduleFetchResult(
+        val weeks: List<OptionItem> = emptyList(),
+        val daySchedules: List<DaySchedule> = emptyList()
+    )
 
-        for (weekId in weekIds) {
-            val weekSelection = selection.copy(weekId = weekId)
-            val days = fetchSchedule(weekSelection)
-            for (day in days) {
-                if (seenDayTitles.add(day.dayTitle)) {
-                    combined.add(day)
+    suspend fun fetchScheduleAndAvailableWeeks(selection: UserSelection): ScheduleFetchResult {
+        return withContext(Dispatchers.IO) {
+            val token = ensureCsrfToken()
+            if (token.isEmpty()) {
+                Log.e(TAG, "fetchScheduleAndAvailableWeeks - CSRF token is empty")
+                return@withContext ScheduleFetchResult()
+            }
+
+            val initialWeekId = selection.weekId.ifBlank { "0" }
+            val formBody = FormBody.Builder()
+                .add("_csrf-frontend", token)
+                .add("ScheduleSearch[fak]", selection.facultyId)
+                .add("ScheduleSearch[form]", selection.formId.ifBlank { "Dnevnaya" })
+                .add("ScheduleSearch[kurse]", selection.courseId)
+                .add("ScheduleSearch[group_class]", selection.groupId)
+                .add("ScheduleSearch[week]", if (initialWeekId == "ALL") "0" else initialWeekId)
+                .build()
+
+            val request = Request.Builder().url(groupScheduleUrl).post(formBody).build()
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.e(TAG, "fetchScheduleAndAvailableWeeks - Unsuccessful response: ${response.code}")
+                        return@withContext ScheduleFetchResult()
+                    }
+                    val html = response.body.string()
+                    val doc = Jsoup.parse(html)
+
+                    // 1. Extract week options from <select id="week-selector">
+                    val extractedWeeks = doc.select("select#week-selector option, select#week-id option, select[name='ScheduleSearch[week]'] option")
+                        .map { OptionItem(id = it.attr("value"), name = it.text().trim()) }
+                        .filter { it.id.isNotBlank() }
+
+                    val allDays = mutableListOf<DaySchedule>()
+
+                    // 2. Parse ALL <div class="weekly-schedule"> elements returned in HTML
+                    val scheduleDivs = doc.select("div.weekly-schedule")
+                    scheduleDivs.forEachIndexed { index, div ->
+                        val divId = div.attr("id").removePrefix("schedule-").trim()
+                        val weekItem = extractedWeeks.find { it.id == divId || it.name == divId }
+                            ?: extractedWeeks.getOrNull(index)
+
+                        val weekId = weekItem?.id ?: divId.ifBlank { "0" }
+                        val weekName = weekItem?.name ?: divId.ifBlank { "Текущая неделя" }
+
+                        val rawText = div.text().trim()
+                        val parsedDays = parseScheduleString(rawText).map { day ->
+                            day.copy(weekId = weekId, weekName = weekName)
+                        }
+                        allDays.addAll(parsedDays)
+                    }
+
+                    // Fallback if no weekly-schedule divs found
+                    if (allDays.isEmpty()) {
+                        val fallbackDiv = doc.select("div.weekly-schedule").first()?.text()?.trim().orEmpty()
+                        val fallbackDays = parseScheduleString(fallbackDiv)
+                        allDays.addAll(fallbackDays)
+                    }
+
+                    Log.d(TAG, "SUCCESS: Extracted ${extractedWeeks.size} weeks and ${allDays.size} total days")
+                    ScheduleFetchResult(weeks = extractedWeeks, daySchedules = allDays)
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching schedule and weeks: ${e.message}", e)
+                ScheduleFetchResult()
             }
         }
-        return combined
+    }
+
+    private fun logLargeString(tag: String, prefix: String, str: String) {
+        val maxChunkSize = 3000
+        var i = 0
+        val total = str.length
+        while (i < total) {
+            val end = Math.min(i + maxChunkSize, total)
+            Log.d(tag, "$prefix [${i / maxChunkSize + 1}]: ${str.substring(i, end)}")
+            i += maxChunkSize
+        }
     }
 
     suspend fun fetchSchedule(selection: UserSelection): List<DaySchedule> {
@@ -191,31 +268,33 @@ class WebWorker(context: Context? = null) {
                 .add("ScheduleSearch[week]", selection.weekId.ifBlank { "0" })
                 .build()
 
-            val request = Request.Builder()
-                .url(groupScheduleUrl)
-                .post(formBody)
-                .build()
-
+            val request = Request.Builder().url(groupScheduleUrl).post(formBody).build()
+            Log.d(TAG, "RAW_LOG: fetchSchedule POST for week='${selection.weekId}'")
             try {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         Log.e(TAG, "fetchSchedule - Unsuccessful response: ${response.code}")
                         return@withContext emptyList()
                     }
-                    val html = response.body?.string() ?: ""
+                    val html = response.body.string()
+                    Log.d(TAG, "RAW_LOG: fetchSchedule response html len=${html.length} for week='${selection.weekId}'")
+                    logLargeString(TAG, "RAW_LOG_SINGLE_WEEK_${selection.weekId}", html)
+
                     val doc = Jsoup.parse(html)
                     val scheduleDiv = doc.select("div.weekly-schedule").first()
                     val rawScheduleText = scheduleDiv?.text()?.trim()
 
                     if (rawScheduleText.isNullOrEmpty()) {
-                        Log.w(TAG, "Weekly schedule container not found in response HTML")
+                        Log.w(TAG, "Weekly schedule container not found in response HTML for week '${selection.weekId}'")
                         return@withContext emptyList()
                     }
 
-                    parseScheduleString(rawScheduleText)
+                    val parsed = parseScheduleString(rawScheduleText)
+                    Log.d(TAG, "RAW_LOG: fetchSchedule parsed ${parsed.size} days for week '${selection.weekId}'")
+                    parsed
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Exception in fetchSchedule: ${e.message}", e)
+                Log.e(TAG, "Error fetching schedule: ${e.message}", e)
                 emptyList()
             }
         }
@@ -225,17 +304,23 @@ class WebWorker(context: Context? = null) {
         val daySchedules = mutableListOf<DaySchedule>()
         if (scheduleText.isBlank()) return emptyList()
 
-        val dayHeaderRegex = "(Понедельник|Вторник|Среда|Четверг|Пятница|Суббота|Воскресенье),\\s*(\\d{1,2}\\s+\\p{L}+)".toRegex()
+        val dayHeaderRegex = """(Понедельник|Вторник|Среда|Четверг|Пятница|Суббота|Воскресенье),\s*(\d{1,2}\s+\p{L}+)""".toRegex()
         val dayMatches = dayHeaderRegex.findAll(scheduleText).toList()
 
-        if (dayMatches.isEmpty()) return emptyList()
+        if (dayMatches.isEmpty()) {
+            return emptyList()
+        }
 
-        for (i in dayMatches.indices) {
-            val currentMatch = dayMatches[i]
-            val dayTitle = currentMatch.groupValues[1]
-            val dateSubtitle = currentMatch.groupValues[2]
-            val dayBlockStartIndex = currentMatch.range.last + 1
-            val dayBlockEndIndex = if (i + 1 < dayMatches.size) dayMatches[i + 1].range.first else scheduleText.length
+        dayMatches.forEachIndexed { index, matchResult ->
+            val dayTitle = matchResult.groupValues[1]
+            val dateSubtitle = matchResult.groupValues[2]
+
+            val dayBlockStartIndex = matchResult.range.last + 1
+            val dayBlockEndIndex = if (index < dayMatches.size - 1) {
+                dayMatches[index + 1].range.first
+            } else {
+                scheduleText.length
+            }
 
             var dayContent = scheduleText.substring(dayBlockStartIndex, dayBlockEndIndex).trim()
             val lessonsBlockMarker = "Время Дисциплина и преподаватель Аудитория"
@@ -312,22 +397,23 @@ class WebWorker(context: Context? = null) {
             val match = regex.find(text)
             if (match != null) {
                 val extracted = match.value.trim()
-                room = if (extracted.all { it.isDigit() || it == '-' }) {
+                room = if (extracted.matches(Regex("""^\d{1,3}(?:-\d{1,3}|/\d{1,2}|[а-яА-Я])?$"""))) {
                     "ауд. $extracted"
                 } else {
                     extracted
                 }
-                text = text.removeRange(match.range).trim()
+                text = text.substring(0, match.range.first) + " " + text.substring(match.range.last + 1)
+                text = text.trim()
                 break
             }
         }
 
-        // 2. Lesson Type extraction
-        val typeRegex = Regex("""\((лек|практ|сем|лаб|зачет|экзамен|практ/сем|лек/практ)\.?\)""", RegexOption.IGNORE_CASE)
-        val typeMatch = typeRegex.find(text)
+        // 2. Type extraction (лек, практ, сем, лаб, зачет, экзамен)
         var type: String? = null
+        val typeRegex = Regex("""\((лек|практ|сем|лаб|консультация|зачет|экзамен|практ/сем|сем/практ)\)""", RegexOption.IGNORE_CASE)
+        val typeMatch = typeRegex.find(text)
         if (typeMatch != null) {
-            val rawType = typeMatch.value.lowercase()
+            val rawType = typeMatch.groupValues[1].lowercase()
             type = when {
                 rawType.contains("лек") -> "Лекция"
                 rawType.contains("практ") || rawType.contains("сем") -> "Практика / Семинар"

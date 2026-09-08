@@ -13,14 +13,15 @@ android {
         applicationId = "by.iposdev.watchso"
         minSdk = 34
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.11"
+        versionCode = 2
+        versionName = "1.12"
 
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -36,6 +37,7 @@ android {
     // useLibrary("wear-sdk") // Removed this line
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -71,8 +73,8 @@ dependencies {
 
     // Network & Parsing
     // implementation(libs.okhttp) // ВРЕМЕННО ЗАКОММЕНТИРОВАНО
-    implementation("com.squareup.okhttp3:okhttp:4.12.0") // ДОБАВЛЕНА ПРЯМАЯ ЗАВИСИМОСТЬ
-    implementation("com.squareup.okhttp3:okhttp-urlconnection:4.12.0") // ДОБАВЛЕНА ЗАВИСИМОСТЬ ДЛЯ JavaNetCookieJar
+    implementation(libs.okhttp.v4120) // ДОБАВЛЕНА ПРЯМАЯ ЗАВИСИМОСТЬ
+    implementation(libs.okhttp.urlconnection.v4120) // ДОБАВЛЕНА ЗАВИСИМОСТЬ ДЛЯ JavaNetCookieJar
     implementation(libs.jsoup)
 
     // Coroutines
@@ -89,6 +91,7 @@ dependencies {
 
     // ----- КОНЕЦ НОВЫХ ЗАВИСИМОСТЕЙ -----
 
+    testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)

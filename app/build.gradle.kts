@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -11,17 +13,49 @@ kotlin {
 }
 
 android {
-    namespace = "by.iposdev.mitsotest"
+    namespace = "mitsoschedule.app"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "by.iposdev.mitsotest"
+        applicationId = "mitsoschedule.app"
         minSdk = 31
         targetSdk = 37
         versionCode = 1
         versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val channelOverride = (project.findProperty("CHANNEL") as? String) ?: System.getenv("CHANNEL")
+        if (!channelOverride.isNullOrBlank()) {
+            buildConfigField("String", "CHANNEL", "\"$channelOverride\"")
+        } else {
+            buildConfigField("String", "CHANNEL", "\"release\"")
+        }
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystoreBase64 = (project.findProperty("KEYSTORE_BASE64") as? String)
+                ?: System.getenv("KEYSTORE_BASE64")
+            val keystoreFileProp = (project.findProperty("KEYSTORE_FILE") as? String)
+                ?: System.getenv("KEYSTORE_FILE")
+
+            if (!keystoreBase64.isNullOrBlank()) {
+                val tempKeystore = file("${layout.buildDirectory.get()}/tmp/release.keystore")
+                tempKeystore.parentFile.mkdirs()
+                tempKeystore.writeBytes(Base64.getDecoder().decode(keystoreBase64.trim()))
+                storeFile = tempKeystore
+            } else if (!keystoreFileProp.isNullOrBlank()) {
+                storeFile = file(keystoreFileProp)
+            }
+
+            storePassword = (project.findProperty("KEYSTORE_PASSWORD") as? String)
+                ?: System.getenv("KEYSTORE_PASSWORD") ?: ""
+            keyAlias = (project.findProperty("KEY_ALIAS") as? String)
+                ?: System.getenv("KEY_ALIAS") ?: ""
+            keyPassword = (project.findProperty("KEY_PASSWORD") as? String)
+                ?: System.getenv("KEY_PASSWORD") ?: ""
+        }
     }
 
     buildTypes {
@@ -31,6 +65,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            val ksFile = signingConfigs.getByName("release").storeFile
+            if (ksFile != null && ksFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
