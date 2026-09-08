@@ -13,11 +13,7 @@ on:
 jobs:
   build:
     name: Test & Build Signed APK
-    runs-on: [self-hosted, windows]
-
-    defaults:
-      run:
-        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -28,20 +24,26 @@ jobs:
       - name: Extract Channel from BuildConfig
         id: get_channel
         run: |
-          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          $gradleContent = Get-Content "app/build.gradle.kts" -Raw
-          if ($gradleContent -match 'CHANNEL.*"\\?([a-zA-Z0-9_-]+)') {
-              $channel = $Matches[1].Trim().ToLower()
-          } else {
-              Write-Host "[ERROR] Failed to find CHANNEL in app/build.gradle.kts"
-              exit 1
-          }
+          python3 -c '
+          import re, sys
 
-          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "CHANNEL=$channel`n", $utf8NoBom)
-          $channelCap = (Get-Culture).TextInfo.ToTitleCase($channel)
-          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "CHANNEL_CAP=$channelCap`n", $utf8NoBom)
-          Write-Host "Extracted CHANNEL from app/build.gradle.kts: $channel"
+          with open("app/build.gradle.kts", "r", encoding="utf-8") as f:
+              content = f.read()
+
+          m = re.search(r"CHANNEL.*\"\\?([a-zA-Z0-9_-]+)", content)
+          if not m:
+              print("❌ ERROR: Failed to find CHANNEL in app/build.gradle.kts", file=sys.stderr)
+              sys.exit(1)
+
+          channel = m.group(1).strip().lower()
+          channel_cap = channel.capitalize()
+
+          with open(sys.argv[1], "a", encoding="utf-8") as env_file:
+              env_file.write(f"CHANNEL={channel}\n")
+              env_file.write(f"CHANNEL_CAP={channel_cap}\n")
+
+          print(f"Extracted CHANNEL: {channel}")
+          ' "$GITHUB_ENV"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -49,96 +51,25 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Auto Setup Android SDK
-        run: |
-          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-
-          $sdkDir = "C:\actions-runner\_work\android-sdk"
-          $latestToolsDir = "$sdkDir\cmdline-tools\latest"
-
-          if (-not (Test-Path "$latestToolsDir\bin\sdkmanager.bat")) {
-              Write-Host "[INFO] Android SDK not found. Downloading Command Line Tools..."
-              $zipPath = Join-Path $env:RUNNER_TEMP "cmdline-tools.zip"
-              $extractPath = Join-Path $env:RUNNER_TEMP "cmdline-temp"
-
-              if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
-              if (Test-Path $extractPath) { Remove-Item -Recurse -Force $extractPath }
-
-              $toolsUrl = "https://dl.google.com/android/repository/commandlinetools-win-12266719_latest.zip"
-              curl.exe -fS -L $toolsUrl -o $zipPath
-
-              Write-Host "[INFO] Extracting archive..."
-              [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractPath)
-
-              # Динамический поиск sdkmanager.bat внутри распакованного архива
-              $sdkManager = Get-ChildItem -Path $extractPath -Filter "sdkmanager.bat" -Recurse | Select-Object -First 1
-              if (-not $sdkManager) {
-                  Write-Host "[ERROR] sdkmanager.bat was not found in archive!"
-                  exit 1
-              }
-              $sourceToolsDir = Split-Path $sdkManager.Directory.FullName -Parent
-
-              Write-Host "[INFO] Installing tools to $latestToolsDir..."
-              if (Test-Path $latestToolsDir) { Remove-Item -Recurse -Force $latestToolsDir }
-              New-Item -ItemType Directory -Force -Path $latestToolsDir | Out-Null
-              Copy-Item -Path "$sourceToolsDir\*" -Destination $latestToolsDir -Recurse -Force
-
-              Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
-              Remove-Item -Recurse -Force $extractPath -ErrorAction SilentlyContinue
-
-              if (-not (Test-Path "$latestToolsDir\bin\sdkmanager.bat")) {
-                  Write-Host "[ERROR] Failed to install cmdline-tools to $latestToolsDir"
-                  exit 1
-              }
-              Write-Host "[OK] Command Line Tools successfully installed."
-          } else {
-              Write-Host "[OK] Android SDK already present at $sdkDir"
-          }
-
-          Write-Host "[INFO] Accepting Android SDK licenses..."
-          $licenseDir = Join-Path $sdkDir "licenses"
-          New-Item -ItemType Directory -Force -Path $licenseDir | Out-Null
-
-          $sdkLicenses = @(
-              "24333f8a63b6825ea9c5514f83c2829b004d1fee",
-              "8933bad161af4178b1185d1a37fbf41ea5269c55",
-              "d56f5187479451eabf01fb78af6dfcb131a6481e"
-          ) -join "`n"
-
-          Set-Content -Path (Join-Path $licenseDir "android-sdk-license") -Value $sdkLicenses
-          Set-Content -Path (Join-Path $licenseDir "android-sdk-preview-license") -Value "84831b9409646a918e30573bab4c9c91346d8abd"
-          Set-Content -Path (Join-Path $licenseDir "android-googletv-license") -Value "601085b94cd77f0b54ff86406955449fac3adfb4"
-          Set-Content -Path (Join-Path $licenseDir "android-sdk-arm-dbt-license") -Value "859f317696e35e8d16fb85ee0da77f4b58773f7a"
-
-          $cleanPath = $sdkDir -replace '\\', '/'
-          $localPropsPath = Join-Path $PWD "local.properties"
-          Set-Content -Path $localPropsPath -Value "sdk.dir=$cleanPath"
-          Write-Host "[OK] Configured local.properties: sdk.dir=$cleanPath"
-
-          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_HOME=$sdkDir`n", $utf8NoBom)
-          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_SDK_ROOT=$sdkDir`n", $utf8NoBom)
-          [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$latestToolsDir\bin`n", $utf8NoBom)
-          [System.IO.File]::AppendAllText($env:GITHUB_PATH, "$sdkDir\platform-tools`n", $utf8NoBom)
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
 
       - name: Get commit info
         id: commit
         run: |
-          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+          commit_id=$(git rev-parse --short HEAD)
+          echo "commit_id=$commit_id" >> "$GITHUB_ENV"
+          echo "commit_id=$commit_id" >> "$GITHUB_OUTPUT"
 
-          $commitId = (git rev-parse --short HEAD).Trim()
-          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, "commit_id=$commitId`n", $utf8NoBom)
+          raw_changelog=$(git log -1 --pretty=format:"%s")
+          changelog=$(echo "$raw_changelog" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
 
-          $rawChangelog = (git log -1 --pretty=format:"%s").Trim()
-          $changelog = $rawChangelog -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;'
-
-          $changelogBlock = "changelog<<EOF`n$changelog`nEOF`n"
-          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, $changelogBlock, $utf8NoBom)
+          echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$changelog" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Run Tests and Build Signed Release APK
         env:
@@ -147,47 +78,37 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          Write-Host "Verify ANDROID_HOME=$env:ANDROID_HOME"
-          Write-Host "Verify local.properties:"
-          Get-Content "local.properties"
-
-          $gradleArgs = @(
-              ":app:testDebugUnitTest",
-              ":app:assembleRelease",
-              "-PCHANNEL=$env:CHANNEL",
-              "-PcommitId=$env:commit_id",
-              "-PKEYSTORE_BASE64=$env:KEYSTORE_BASE64",
-              "-PKEY_ALIAS=$env:KEY_ALIAS",
-              "-PKEYSTORE_PASSWORD=$env:KEYSTORE_PASSWORD",
-              "-PKEY_PASSWORD=$env:KEY_PASSWORD",
-              "--parallel",
-              "--build-cache"
-          )
-
-          .\gradlew.bat @gradleArgs
+          ./gradlew :app:testDebugUnitTest :app:assembleRelease \
+            "-PCHANNEL=${CHANNEL}" \
+            "-PcommitId=${commit_id}" \
+            "-PKEYSTORE_BASE64=${KEYSTORE_BASE64}" \
+            "-PKEY_ALIAS=${KEY_ALIAS}" \
+            "-PKEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}" \
+            "-PKEY_PASSWORD=${KEY_PASSWORD}" \
+            --parallel \
+            --build-cache
 
       - name: Prepare & Rename Signed APK
         run: |
-          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+          APK_SRC="app/build/outputs/apk/release/app-release.apk"
+          APK_NAME="iposstore-${CHANNEL}-${commit_id}.apk"
+          APK_DEST="app/build/outputs/apk/release/${APK_NAME}"
 
-          $apkSrc = "app/build/outputs/apk/release/app-release.apk"
-          $apkName = "iposstore-$env:CHANNEL-$env:commit_id.apk"
-          $apkDest = "app/build/outputs/apk/release/$apkName"
+          if [ -f "$APK_SRC" ]; then
+            mv -f "$APK_SRC" "$APK_DEST"
+          else
+            FOUND_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+            if [ -n "$FOUND_APK" ]; then
+              mv -f "$FOUND_APK" "$APK_DEST"
+            else
+              echo "❌ ERROR: No APK found in app/build/outputs/apk/release" >&2
+              exit 1
+            fi
+          fi
 
-          if (Test-Path $apkSrc) {
-              Move-Item -Path $apkSrc -Destination $apkDest -Force
-          } else {
-              $foundApk = Get-ChildItem -Path "app/build/outputs/apk/release" -Filter "*.apk" | Select-Object -First 1
-              if ($foundApk) {
-                  Move-Item -Path $foundApk.FullName -Destination $apkDest -Force
-              }
-          }
-
-          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "APK_PATH=$apkDest`n", $utf8NoBom)
-          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "APK_NAME=$apkName`n", $utf8NoBom)
-          Write-Host "APK Path: $apkDest"
+          echo "APK_PATH=$APK_DEST" >> "$GITHUB_ENV"
+          echo "APK_NAME=$APK_NAME" >> "$GITHUB_ENV"
+          echo "APK Path: $APK_DEST"
 
       - name: Upload APK to Custom Updater API
         env:
@@ -197,48 +118,51 @@ jobs:
           CF_CLIENT_SECRET: ${{ secrets.CF_CLIENT_SECRET }}
           CHANGELOG_TEXT: ${{ steps.commit.outputs.changelog }}
         run: |
-          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          $serverUrl = $env:SERVER_URL.TrimEnd('/')
-          if (-not ($serverUrl.StartsWith('http://') -or $serverUrl.StartsWith('https://'))) {
-              $serverUrl = "https://$serverUrl"
-          }
+          SERVER_URL="${SERVER_URL%/}"
+          if [[ ! "$SERVER_URL" =~ ^https?:// ]]; then
+            SERVER_URL="https://$SERVER_URL"
+          fi
 
-          $responseFile = Join-Path $env:RUNNER_TEMP "response.json"
-          $uploadUrl = "$serverUrl/api/upload"
+          UPLOAD_URL="${SERVER_URL}/api/upload"
+          RESPONSE_FILE="${RUNNER_TEMP}/response.json"
 
-          Write-Host "Uploading $env:APK_PATH to $uploadUrl (Channel: $env:CHANNEL)..."
+          echo "Uploading $APK_PATH to $UPLOAD_URL (Channel: $CHANNEL)..."
 
-          $headers = @{
-              "X-API-Key" = $env:API_KEY
-              "User-Agent" = "IposStore-CI-Bot/1.0"
-          }
-          if ($env:CF_CLIENT_ID) { $headers["CF-Access-Client-Id"] = $env:CF_CLIENT_ID }
-          if ($env:CF_CLIENT_SECRET) { $headers["CF-Access-Client-Secret"] = $env:CF_CLIENT_SECRET }
+          CURL_ARGS=(
+            -sS
+            -L
+            --post301
+            --post302
+            -o "$RESPONSE_FILE"
+            -w "%{http_code}"
+            -H "X-API-Key: ${API_KEY}"
+            -H "User-Agent: IposStore-CI-Bot/1.0"
+          )
 
-          $curlPath = "curl.exe"
-          $headerArgs = @()
-          foreach ($h in $headers.Keys) {
-              if (-not [string]::IsNullOrWhiteSpace($headers[$h])) {
-                  $headerArgs += "-H"
-                  $headerArgs += "$h: $($headers[$h])"
-              }
-          }
+          if [ -n "$CF_CLIENT_ID" ]; then
+            CURL_ARGS+=(-H "CF-Access-Client-Id: ${CF_CLIENT_ID}")
+          fi
 
-          $curlArgs = @("-sS", "-L", "--post301", "--post302", "-o", $responseFile, "-w", "%{http_code}") +
-                      $headerArgs +
-                      @("-F", "file=@$($env:APK_PATH)", "-F", "channel=$($env:CHANNEL)", "-F", "changelog=$($env:CHANGELOG_TEXT)", $uploadUrl)
+          if [ -n "$CF_CLIENT_SECRET" ]; then
+            CURL_ARGS+=(-H "CF-Access-Client-Secret: ${CF_CLIENT_SECRET}")
+          fi
 
-          $httpStatus = & $curlPath @curlArgs
-          Write-Host "Server HTTP Status: $httpStatus"
+          HTTP_STATUS=$(curl "${CURL_ARGS[@]}" \
+            -F "file=@${APK_PATH}" \
+            -F "channel=${CHANNEL}" \
+            -F "changelog=${CHANGELOG_TEXT}" \
+            "$UPLOAD_URL")
 
-          if ($httpStatus -eq "200" -or $httpStatus -eq "201") {
-              Write-Host "[OK] Successfully uploaded to update server!"
-              if (Test-Path $responseFile) { Get-Content $responseFile }
-          } else {
-              Write-Host "[ERROR] Upload failed with HTTP Status: $httpStatus"
-              if (Test-Path $responseFile) { Get-Content $responseFile }
-              exit 1
-          }
+          echo "Server HTTP Status: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "201" ]; then
+            echo "✅ Successfully uploaded to update server!"
+            [ -f "$RESPONSE_FILE" ] && cat "$RESPONSE_FILE"
+          else
+            echo "❌ Upload failed with HTTP Status: $HTTP_STATUS" >&2
+            [ -f "$RESPONSE_FILE" ] && cat "$RESPONSE_FILE"
+            exit 1
+          fi
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
