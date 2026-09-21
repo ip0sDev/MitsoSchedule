@@ -152,18 +152,7 @@ fun MainAppScreen(
                     }
                 },
                 actions = {
-                    if (currentTab == 0) {
-                        IconButton(
-                            onClick = { viewModel.fetchSchedule() },
-                            enabled = userSelection.isComplete && !isLoading
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Refresh,
-                                contentDescription = "Обновить расписание",
-                                tint = if (userSelection.isComplete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                            )
-                        }
-                    } else if (studentCabinetData != null) {
+                    if (currentTab == 1 && studentCabinetData != null) {
                         IconButton(
                             onClick = { viewModel.refreshStudentCabinet() },
                             enabled = !isStudentLoading

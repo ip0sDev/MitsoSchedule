@@ -91,8 +91,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadInitialData() {
         viewModelScope.launch {
-            loadFaculties()
-
+            // 1. Read local preferences immediately
             val saved = preferencesManager.savedSelectionFlow.firstOrNull()
             val savedTime = preferencesManager.lastUpdateFlow.firstOrNull()
             val cachedSchedule = preferencesManager.cachedScheduleFlow.firstOrNull()
@@ -102,10 +101,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _lastUpdateTime.value = savedTime
             }
 
-            if (cachedSchedule != null && cachedSchedule.isNotEmpty()) {
+            // 2. Immediately apply saved selection and cached schedule to UI (0ms delay)
+            if (saved != null) {
+                _userSelection.value = saved
+            }
+
+            if (!cachedSchedule.isNullOrEmpty()) {
                 _allScheduleData.value = cachedSchedule
 
-                // Normalize the saved week id against cached data (old saves may have "0")
+                // Populate weeks list from cached schedule immediately so week navigation works offline
+                val cachedWeeks = cachedSchedule
+                    .map { OptionItem(it.weekId, it.weekName) }
+                    .filter { it.id.isNotBlank() }
+                    .distinctBy { it.id }
+                if (cachedWeeks.isNotEmpty()) {
+                    _weeks.value = processWeekList(cachedWeeks)
+                }
+
+                // If saved week is invalid or default "0", resolve it to first known week
                 if (saved != null) {
                     val knownWeekIds = cachedSchedule.map { it.weekId }.filter { it.isNotBlank() }.distinct()
                     val savedWeekId = saved.weekId
@@ -115,12 +128,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _userSelection.value = saved.copy(weekId = firstId, weekName = firstName)
                     }
                 }
+
+                // Filter and display schedule instantly on screen
                 filterAndApplyDisplayedSchedule()
             }
 
+            // 3. Load options and trigger background refresh asynchronously without blocking cached UI
+            launch {
+                loadFaculties()
+            }
+
             if (saved != null && saved.isComplete) {
-                _userSelection.value = saved
-                loadDependentOptionsForSelection(saved)
+                launch {
+                    try {
+                        loadDependentOptionsForSelection(saved)
+                    } catch (e: Exception) {
+                        // ignore network error for offline cache
+                    }
+                }
 
                 val shouldRefresh = PreferencesManager.shouldAutoRefresh(lastFetchMillis)
                 if (shouldRefresh || cachedSchedule.isNullOrEmpty()) {
@@ -353,11 +378,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun filterAndApplyDisplayedSchedule() {
         val selectedWeekId = _userSelection.value.weekId
         val all = _allScheduleData.value
-        if (selectedWeekId == ALL_WEEKS_ID) {
-            _scheduleData.value = all
+        val filtered = if (selectedWeekId == ALL_WEEKS_ID) {
+            all
         } else {
             // Filter strictly by week: if the selected week has no data, show empty state
-            _scheduleData.value = all.filter { it.weekId == selectedWeekId }
+            all.filter { it.weekId == selectedWeekId }
+        }
+        _scheduleData.value = filtered.map { day ->
+            day.copy(lessons = WebWorker.groupLessonsByTime(day.lessons.map { WebWorker.normalizeLesson(it) }))
         }
     }
 

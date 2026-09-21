@@ -25,6 +25,15 @@ enum class LessonType(val title: String) {
 }
 
 @Serializable
+data class SubgroupInfo(
+    val subgroup: String = "",
+    val teacher: String? = null,
+    val room: String? = null,
+    val subject: String? = null,
+    val type: String? = null
+)
+
+@Serializable
 data class Lesson(
     val time: String? = null,
     val subject: String = "",
@@ -32,7 +41,9 @@ data class Lesson(
     val room: String? = null,
     val type: String? = null,
     val rawText: String = "",
-    val isEmptyWindow: Boolean = false
+    val isEmptyWindow: Boolean = false,
+    val subgroup: String? = null,
+    val subgroups: List<SubgroupInfo> = emptyList()
 )
 
 @Serializable

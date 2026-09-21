@@ -51,8 +51,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.FreeBreakfast
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Schedule
 import mitsoschedule.app.data.DaySchedule
 import mitsoschedule.app.data.Lesson
+import mitsoschedule.app.data.SubgroupInfo
+import mitsoschedule.app.ui.theme.BiolumeSuccessDark
+import mitsoschedule.app.ui.theme.BiolumeSuccessLight
 import mitsoschedule.app.ui.theme.ExamBadgeBgDark
 import mitsoschedule.app.ui.theme.ExamBadgeBgLight
 import mitsoschedule.app.ui.theme.ExamBadgeTextDark
@@ -69,7 +77,9 @@ import mitsoschedule.app.ui.theme.PracticeBadgeBgDark
 import mitsoschedule.app.ui.theme.PracticeBadgeBgLight
 import mitsoschedule.app.ui.theme.PracticeBadgeTextDark
 import mitsoschedule.app.ui.theme.PracticeBadgeTextLight
+import java.time.Duration
 import java.time.LocalDate
+import java.time.LocalTime
 
 enum class DayTimelineCategory {
     PAST, TODAY, FUTURE
@@ -189,6 +199,181 @@ fun PastDaysAccordionCard(
     }
 }
 
+enum class TodayScheduleState {
+    NOT_STARTED,
+    ONGOING_LESSON,
+    BREAK_BETWEEN_LESSONS,
+    FINISHED
+}
+
+data class TodayTimeInfo(
+    val state: TodayScheduleState,
+    val currentLessonIndex: Int = -1,
+    val nextLessonIndex: Int = -1,
+    val infoMessage: String = "",
+    val detailMessage: String = ""
+)
+
+fun parseTimeRange(timeStr: String?): Pair<LocalTime, LocalTime>? {
+    if (timeStr.isNullOrBlank()) return null
+    val match = Regex("""(\d{1,2})[.:](\d{2})\s*[-–—]\s*(\d{1,2})[.:](\d{2})""").find(timeStr) ?: return null
+    val (h1, m1, h2, m2) = match.destructured
+    return try {
+        val start = LocalTime.of(h1.toInt(), m1.toInt())
+        val end = LocalTime.of(h2.toInt(), m2.toInt())
+        Pair(start, end)
+    } catch (e: Exception) {
+        null
+    }
+}
+
+fun calculateTodayTimeInfo(lessons: List<Lesson>, now: LocalTime = LocalTime.now()): TodayTimeInfo {
+    val activeLessons = lessons.filter { !it.isEmptyWindow }
+    if (activeLessons.isEmpty()) {
+        return TodayTimeInfo(TodayScheduleState.NOT_STARTED, infoMessage = "В этот день пар нет")
+    }
+
+    val lessonTimes = activeLessons.map { parseTimeRange(it.time) }
+    val firstStartTime = lessonTimes.firstOrNull { it != null }?.first
+    val lastEndTime = lessonTimes.lastOrNull { it != null }?.second
+
+    if (firstStartTime != null && now.isBefore(firstStartTime)) {
+        val formattedStart = "%02d:%02d".format(firstStartTime.hour, firstStartTime.minute)
+        return TodayTimeInfo(
+            state = TodayScheduleState.NOT_STARTED,
+            nextLessonIndex = 0,
+            infoMessage = "Пары ещё не начались",
+            detailMessage = "Первая пара начнётся в $formattedStart"
+        )
+    }
+
+    if (lastEndTime != null && now.isAfter(lastEndTime)) {
+        return TodayTimeInfo(
+            state = TodayScheduleState.FINISHED,
+            infoMessage = "Пары на сегодня закончились",
+            detailMessage = "Отличного отдыха!"
+        )
+    }
+
+    // Check each active lesson: is now during the lesson?
+    for (i in activeLessons.indices) {
+        val range = lessonTimes[i] ?: continue
+        if (!now.isBefore(range.first) && !now.isAfter(range.second)) {
+            val formattedEnd = "%02d:%02d".format(range.second.hour, range.second.minute)
+            return TodayTimeInfo(
+                state = TodayScheduleState.ONGOING_LESSON,
+                currentLessonIndex = i,
+                infoMessage = "Идёт пара (${i + 1}-я)",
+                detailMessage = "Завершится в $formattedEnd"
+            )
+        }
+    }
+
+    // Check if between lessons (break / перемена)
+    for (i in 0 until activeLessons.size - 1) {
+        val currentRange = lessonTimes[i]
+        val nextRange = lessonTimes[i + 1]
+        if (currentRange != null && nextRange != null) {
+            if (now.isAfter(currentRange.second) && now.isBefore(nextRange.first)) {
+                val formattedNextStart = "%02d:%02d".format(nextRange.first.hour, nextRange.first.minute)
+                val minutesLeft = Duration.between(now, nextRange.first).toMinutes()
+                return TodayTimeInfo(
+                    state = TodayScheduleState.BREAK_BETWEEN_LESSONS,
+                    nextLessonIndex = i + 1,
+                    infoMessage = "Перерыв между парами",
+                    detailMessage = if (minutesLeft > 0) "Следующая пара через $minutesLeft мин (в $formattedNextStart)" else "Следующая пара в $formattedNextStart"
+                )
+            }
+        }
+    }
+
+    return TodayTimeInfo(TodayScheduleState.NOT_STARTED)
+}
+
+@Composable
+fun TodayStatusBanner(
+    todayInfo: TodayTimeInfo,
+    modifier: Modifier = Modifier
+) {
+    val isDark = isSystemInDarkTheme()
+
+    val (containerColor, iconColor, textColor) = when (todayInfo.state) {
+        TodayScheduleState.ONGOING_LESSON -> Triple(
+            MaterialTheme.colorScheme.primaryContainer,
+            MaterialTheme.colorScheme.primary,
+            MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        TodayScheduleState.NOT_STARTED -> Triple(
+            MaterialTheme.colorScheme.surfaceContainerHigh,
+            MaterialTheme.colorScheme.primary,
+            MaterialTheme.colorScheme.onSurface
+        )
+        TodayScheduleState.BREAK_BETWEEN_LESSONS -> Triple(
+            MaterialTheme.colorScheme.surfaceContainerHigh,
+            MaterialTheme.colorScheme.primary,
+            MaterialTheme.colorScheme.onSurface
+        )
+        TodayScheduleState.FINISHED -> Triple(
+            if (isDark) Color(0x26A8DB6E) else Color(0x264C9A2A),
+            if (isDark) BiolumeSuccessDark else BiolumeSuccessLight,
+            if (isDark) BiolumeSuccessDark else BiolumeSuccessLight
+        )
+    }
+
+    val icon = when (todayInfo.state) {
+        TodayScheduleState.ONGOING_LESSON -> Icons.Outlined.AccessTime
+        TodayScheduleState.NOT_STARTED -> Icons.Outlined.Schedule
+        TodayScheduleState.BREAK_BETWEEN_LESSONS -> Icons.Outlined.FreeBreakfast
+        TodayScheduleState.FINISHED -> Icons.Outlined.CheckCircle
+    }
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        color = containerColor,
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                color = iconColor.copy(alpha = 0.15f),
+                shape = CircleShape,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = iconColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column {
+                Text(
+                    text = todayInfo.infoMessage,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor
+                )
+                if (todayInfo.detailMessage.isNotBlank()) {
+                    Text(
+                        text = todayInfo.detailMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = textColor.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun DayScheduleSection(
     daySchedule: DaySchedule,
@@ -196,6 +381,7 @@ fun DayScheduleSection(
     modifier: Modifier = Modifier
 ) {
     val activeLessons = daySchedule.lessons.filter { !it.isEmptyWindow }
+    val todayInfo = if (isToday) calculateTodayTimeInfo(activeLessons) else null
 
     Column(
         modifier = modifier
@@ -209,6 +395,12 @@ fun DayScheduleSection(
             weekName = daySchedule.weekName,
             isToday = isToday
         )
+
+        // Today Status Banner (when lessons exist)
+        if (isToday && activeLessons.isNotEmpty() && todayInfo != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            TodayStatusBanner(todayInfo = todayInfo)
+        }
 
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -232,16 +424,21 @@ fun DayScheduleSection(
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "В этот день пар нет",
+                        text = if (isToday) "Сегодня пар нет — свободный день!" else "В этот день пар нет",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         } else {
-            activeLessons.forEach { lesson ->
+            activeLessons.forEachIndexed { index, lesson ->
+                val isCurrent = isToday && todayInfo?.currentLessonIndex == index
+                val isUpcomingFirst = isToday && todayInfo?.state == TodayScheduleState.NOT_STARTED && index == 0
+
                 LessonCard(
                     lesson = lesson,
+                    isCurrent = isCurrent,
+                    isUpcomingFirst = isUpcomingFirst,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 6.dp)
@@ -360,21 +557,103 @@ private fun getPairWord(count: Int): String {
 @Composable
 fun LessonCard(
     lesson: Lesson,
+    isCurrent: Boolean = false,
+    isUpcomingFirst: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val isDark = isSystemInDarkTheme()
 
+    val cardBorderModifier = when {
+        isCurrent -> Modifier.border(
+            width = 1.5.dp,
+            color = MaterialTheme.colorScheme.primary,
+            shape = RoundedCornerShape(24.dp)
+        )
+        isUpcomingFirst -> Modifier.border(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(24.dp)
+        )
+        else -> Modifier
+    }
+
+    val cardBg = when {
+        isCurrent -> if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer
+        else -> MaterialTheme.colorScheme.surfaceContainer
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .then(cardBorderModifier)
             .biolumeNeumorphicRaised(shape = RoundedCornerShape(24.dp), isDark = isDark)
-            .background(MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(24.dp))
+            .background(cardBg, shape = RoundedCornerShape(24.dp))
             .padding(16.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth()
         ) {
+            // Live / Status Indicator for Current or Upcoming First
+            if (isCurrent || isUpcomingFirst) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp),
+                    horizontalArrangement = Arrangement.Start,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (isCurrent) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(100.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.onPrimary)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "ИДЁТ СЕЙЧАС",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                            }
+                        }
+                    } else if (isUpcomingFirst) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(100.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.PlayArrow,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "ПЕРВАЯ ПАРА",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // 1. ВРЕМЯ И ТИП ЗАНЯТИЯ (Отдельный выразительный блок)
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -383,7 +662,7 @@ fun LessonCard(
             ) {
                 if (!lesson.time.isNullOrBlank()) {
                     Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
+                        color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
                         shape = RoundedCornerShape(14.dp)
                     ) {
                         Row(
@@ -393,7 +672,7 @@ fun LessonCard(
                             Icon(
                                 imageVector = Icons.Outlined.AccessTime,
                                 contentDescription = "Время пары",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                tint = if (isCurrent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -401,7 +680,7 @@ fun LessonCard(
                                 text = lesson.time,
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = if (isCurrent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
                     }
@@ -435,8 +714,14 @@ fun LessonCard(
                 lineHeight = MaterialTheme.typography.titleMedium.lineHeight
             )
 
-            // 3. ОТДЕЛЬНЫЕ КАРТОЧКИ: АУДИТОРИЯ И ПРЕПОДАВАТЕЛЬ
-            if (!lesson.room.isNullOrBlank() || !lesson.teacher.isNullOrBlank()) {
+            // 3. ПОДГРУППЫ (если есть объединённые занятия)
+            if (lesson.subgroups.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                lesson.subgroups.forEach { subgroup ->
+                    SubgroupItemView(subgroup = subgroup, parentType = lesson.type)
+                }
+            } else if (!lesson.room.isNullOrBlank() || !lesson.teacher.isNullOrBlank()) {
+                // ОБЫЧНЫЙ ВАРИАНТ (БЕЗ ПОДГРУПП)
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Row(
@@ -468,6 +753,112 @@ fun LessonCard(
                             modifier = Modifier.weight(if (!lesson.room.isNullOrBlank()) 1.2f else 1f)
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SubgroupItemView(
+    subgroup: SubgroupInfo,
+    parentType: String? = null,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(18.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            // Header Row: Subgroup Badge + Room Badge (ВОЗЛЕ подгруппы) + Type (if different)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Subgroup Pill
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(100.dp)
+                    ) {
+                        Text(
+                            text = subgroup.subgroup,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    // Room Pill right BESIDE the subgroup!
+                    if (!subgroup.room.isNullOrBlank()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                            shape = RoundedCornerShape(100.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.MeetingRoom,
+                                    contentDescription = "Аудитория",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = subgroup.room,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (!subgroup.type.isNullOrBlank() && subgroup.type != parentType) {
+                    Text(
+                        text = subgroup.type,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Teacher underneath
+            if (!subgroup.teacher.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 2.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Person,
+                        contentDescription = "Преподаватель",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = subgroup.teacher,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Normal,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         }
