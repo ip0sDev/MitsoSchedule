@@ -3,8 +3,8 @@ package mitsoschedule.app.ui.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import mitsoschedule.app.ui.theme.biolumeNeumorphicRaised
+import mitsoschedule.app.ui.theme.BiolumeTheme
+import mitsoschedule.app.ui.theme.biolumeBiopulse
+import mitsoschedule.app.ui.theme.biolumeSurface
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Class
@@ -51,7 +53,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.border
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FreeBreakfast
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -59,8 +60,6 @@ import androidx.compose.material.icons.outlined.Schedule
 import mitsoschedule.app.data.DaySchedule
 import mitsoschedule.app.data.Lesson
 import mitsoschedule.app.data.SubgroupInfo
-import mitsoschedule.app.ui.theme.BiolumeSuccessDark
-import mitsoschedule.app.ui.theme.BiolumeSuccessLight
 import mitsoschedule.app.ui.theme.ExamBadgeBgDark
 import mitsoschedule.app.ui.theme.ExamBadgeBgLight
 import mitsoschedule.app.ui.theme.ExamBadgeTextDark
@@ -146,14 +145,19 @@ fun PastDaysAccordionCard(
     onToggleExpand: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isDark = isSystemInDarkTheme()
+    val depth = BiolumeTheme.depth
+    val shape = RoundedCornerShape(20.dp)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .biolumeNeumorphicRaised(shape = RoundedCornerShape(20.dp), isDark = isDark)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(20.dp))
+            .biolumeSurface(
+                shape = shape,
+                tokens = depth,
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                outlineColor = MaterialTheme.colorScheme.outlineVariant,
+            )
             .clickable { onToggleExpand() }
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
@@ -295,7 +299,7 @@ fun TodayStatusBanner(
     todayInfo: TodayTimeInfo,
     modifier: Modifier = Modifier
 ) {
-    val isDark = isSystemInDarkTheme()
+    val status = BiolumeTheme.status
 
     val (containerColor, iconColor, textColor) = when (todayInfo.state) {
         TodayScheduleState.ONGOING_LESSON -> Triple(
@@ -314,9 +318,9 @@ fun TodayStatusBanner(
             MaterialTheme.colorScheme.onSurface
         )
         TodayScheduleState.FINISHED -> Triple(
-            if (isDark) Color(0x26A8DB6E) else Color(0x264C9A2A),
-            if (isDark) BiolumeSuccessDark else BiolumeSuccessLight,
-            if (isDark) BiolumeSuccessDark else BiolumeSuccessLight
+            status.success.copy(alpha = 0.15f),
+            status.success,
+            status.success
         )
     }
 
@@ -327,12 +331,22 @@ fun TodayStatusBanner(
         TodayScheduleState.FINISHED -> Icons.Outlined.CheckCircle
     }
 
+    val depth = BiolumeTheme.depth
+    val isOngoing = todayInfo.state == TodayScheduleState.ONGOING_LESSON
+    val bannerShape = RoundedCornerShape(20.dp)
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp)
+            .biolumeSurface(
+                shape = bannerShape,
+                tokens = depth,
+                containerColor = containerColor,
+                outlineColor = if (isOngoing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+            ),
         color = containerColor,
-        shape = RoundedCornerShape(20.dp)
+        shape = bannerShape
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -341,7 +355,20 @@ fun TodayStatusBanner(
             Surface(
                 color = iconColor.copy(alpha = 0.15f),
                 shape = CircleShape,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier
+                    .size(36.dp)
+                    .then(
+                        if (isOngoing) {
+                            Modifier.biolumeBiopulse(
+                                shape = CircleShape,
+                                color = iconColor,
+                                minRadius = 4.dp,
+                                maxRadius = 10.dp
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -561,33 +588,38 @@ fun LessonCard(
     isUpcomingFirst: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val isDark = isSystemInDarkTheme()
+    val depth = BiolumeTheme.depth
+    val isDark = depth.isDark
+    val shape = RoundedCornerShape(24.dp)
 
-    val cardBorderModifier = when {
-        isCurrent -> Modifier.border(
-            width = 1.5.dp,
-            color = MaterialTheme.colorScheme.primary,
-            shape = RoundedCornerShape(24.dp)
-        )
-        isUpcomingFirst -> Modifier.border(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-            shape = RoundedCornerShape(24.dp)
-        )
-        else -> Modifier
+    // §2: грань карточки одна. В покое это нейтральный hairline outlineVariant,
+    // у текущей/ближайшей пары он превращается в сигнальный контур primary (§4.2).
+    // Раньше рамок было две — своя border() поверх border() внутри модификатора рельефа.
+    val outlineColor = when {
+        isCurrent -> MaterialTheme.colorScheme.primary
+        isUpcomingFirst -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+        else -> MaterialTheme.colorScheme.outlineVariant
     }
+    val outlineWidth = if (isCurrent) 1.5.dp else 1.dp
 
-    val cardBg = when {
-        isCurrent -> if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer
-        else -> MaterialTheme.colorScheme.surfaceContainer
+    // surfaceContainerHigh отличим от surfaceContainer в обеих палитрах Biolume,
+    // поэтому текущая пара подсвечивается фоном и в светлой теме тоже.
+    val cardBg = if (isCurrent) {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    } else {
+        MaterialTheme.colorScheme.surfaceContainer
     }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .then(cardBorderModifier)
-            .biolumeNeumorphicRaised(shape = RoundedCornerShape(24.dp), isDark = isDark)
-            .background(cardBg, shape = RoundedCornerShape(24.dp))
+            .biolumeSurface(
+                shape = shape,
+                tokens = depth,
+                containerColor = cardBg,
+                outlineColor = outlineColor,
+                borderWidth = outlineWidth,
+            )
             .padding(16.dp)
     ) {
         Column(
@@ -616,6 +648,12 @@ fun LessonCard(
                                         .size(8.dp)
                                         .clip(CircleShape)
                                         .background(MaterialTheme.colorScheme.onPrimary)
+                                        .biolumeBiopulse(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            minRadius = 4.dp,
+                                            maxRadius = 8.dp
+                                        )
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
@@ -678,7 +716,7 @@ fun LessonCard(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = lesson.time,
-                                style = MaterialTheme.typography.labelLarge,
+                                style = BiolumeTheme.dataType.dataMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isCurrent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer
                             )
@@ -804,11 +842,12 @@ fun SubgroupItemView(
                     // Room Pill right BESIDE the subgroup!
                     if (!subgroup.room.isNullOrBlank()) {
                         Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                            shape = RoundedCornerShape(100.dp)
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(100.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -820,9 +859,9 @@ fun SubgroupItemView(
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = subgroup.room,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    style = BiolumeTheme.dataType.dataSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         }
@@ -937,12 +976,19 @@ fun EmptyScheduleState(
     onSelectGroupClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val depth = BiolumeTheme.depth
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(16.dp)
+            .biolumeSurface(
+                shape = RoundedCornerShape(28.dp),
+                tokens = depth,
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                outlineColor = MaterialTheme.colorScheme.outlineVariant
+            ),
         shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
         Column(
             modifier = Modifier
@@ -1030,12 +1076,19 @@ fun ErrorScheduleState(
     onRetryClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val depth = BiolumeTheme.depth
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(16.dp)
+            .biolumeSurface(
+                shape = RoundedCornerShape(28.dp),
+                tokens = depth,
+                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                outlineColor = MaterialTheme.colorScheme.outlineVariant
+            ),
         shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f))
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
         Column(
             modifier = Modifier

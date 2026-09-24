@@ -300,4 +300,62 @@ class ExampleUnitTest {
         assertEquals("ауд. 63 (к)", web.subgroups[0].room)
         assertEquals("Пархимович А. В.", web.subgroups[0].teacher)
     }
+
+    @Test
+    fun testIsScheduleOlderThanWeek() {
+        val now = System.currentTimeMillis()
+        val today = java.time.LocalDate.of(2026, 9, 24)
+
+        // 1. Zero timestamp -> always older than week
+        assertTrue(PreferencesManager.isScheduleOlderThanWeek(0L, emptyList(), today))
+
+        // 2. Eight days ago timestamp -> true
+        val eightDaysAgo = now - (8 * 24 * 60 * 60 * 1000L)
+        assertTrue(PreferencesManager.isScheduleOlderThanWeek(eightDaysAgo, emptyList(), today))
+
+        // 3. Fresh timestamp but empty schedules -> true
+        assertTrue(PreferencesManager.isScheduleOlderThanWeek(now, emptyList(), today))
+
+        // 4. Fresh timestamp with past schedule (e.g., from September 10) -> true
+        val oldSchedule = listOf(
+            mitsoschedule.app.data.DaySchedule(
+                dayTitle = "Четверг, 10 сентября",
+                lessons = listOf(mitsoschedule.app.data.Lesson(time = "08.15 — 09.35", subject = "Test", room = "101"))
+            )
+        )
+        assertTrue(PreferencesManager.isScheduleOlderThanWeek(now, oldSchedule, today))
+
+        // 5. Fresh timestamp with current week schedule (September 24) -> false
+        val currentSchedule = listOf(
+            mitsoschedule.app.data.DaySchedule(
+                dayTitle = "Четверг, 24 сентября",
+                lessons = listOf(mitsoschedule.app.data.Lesson(time = "08.15 — 09.35", subject = "Test", room = "101"))
+            )
+        )
+        assertFalse(PreferencesManager.isScheduleOlderThanWeek(now, currentSchedule, today))
+    }
+
+    @Test
+    fun testFindCurrentWeekId() {
+        val today = java.time.LocalDate.of(2026, 9, 24) // Thursday in week 4
+
+        val weeks = listOf(
+            mitsoschedule.app.data.OptionItem(id = "1", name = "31 августа - 06 сентября"),
+            mitsoschedule.app.data.OptionItem(id = "2", name = "07 сентября - 13 сентября"),
+            mitsoschedule.app.data.OptionItem(id = "3", name = "14 сентября - 20 сентября"),
+            mitsoschedule.app.data.OptionItem(id = "4", name = "21 сентября - 27 сентября"),
+            mitsoschedule.app.data.OptionItem(id = "5", name = "28 сентября - 04 октября")
+        )
+
+        val schedules = listOf(
+            mitsoschedule.app.data.DaySchedule(dayTitle = "Понедельник, 31 августа", weekId = "1", weekName = "31 августа - 06 сентября"),
+            mitsoschedule.app.data.DaySchedule(dayTitle = "Вторник, 01 сентября", weekId = "1", weekName = "31 августа - 06 сентября"),
+            mitsoschedule.app.data.DaySchedule(dayTitle = "Понедельник, 21 сентября", weekId = "4", weekName = "21 сентября - 27 сентября"),
+            mitsoschedule.app.data.DaySchedule(dayTitle = "Четверг, 24 сентября", weekId = "4", weekName = "21 сентября - 27 сентября"),
+            mitsoschedule.app.data.DaySchedule(dayTitle = "Понедельник, 28 сентября", weekId = "5", weekName = "28 сентября - 04 октября")
+        )
+
+        val currentWeekId = PreferencesManager.findCurrentWeekId(weeks, schedules, today)
+        assertEquals("4", currentWeekId)
+    }
 }

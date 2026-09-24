@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import mitsoschedule.app.data.DaySchedule
 import mitsoschedule.app.data.OptionItem
 import mitsoschedule.app.data.PreferencesManager
+import mitsoschedule.app.data.ServerHealth
 import mitsoschedule.app.data.StudentAuthCredentials
 import mitsoschedule.app.data.StudentCabinetData
 import mitsoschedule.app.data.StudentWebWorker
@@ -82,6 +83,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _studentErrorMessage = mutableStateOf<String?>(null)
     val studentErrorMessage: State<String?> = _studentErrorMessage
 
+    // Server & Settings States
+    private val _serverHealth = mutableStateOf<ServerHealth?>(null)
+    val serverHealth: State<ServerHealth?> = _serverHealth
+
+    private val _isCheckingHealth = mutableStateOf(false)
+    val isCheckingHealth: State<Boolean> = _isCheckingHealth
+
+    private val _serverUrl = mutableStateOf(PreferencesManager.DEFAULT_SERVER_URL)
+    val serverUrl: State<String> = _serverUrl
+
+    private val _themeMode = mutableStateOf("system")
+    val themeMode: State<String> = _themeMode
+
+    fun setThemeMode(mode: String) {
+        _themeMode.value = mode
+        viewModelScope.launch {
+            preferencesManager.setThemeMode(mode)
+        }
+    }
+
     private var savedCredentials: StudentAuthCredentials? = null
 
     init {
@@ -91,6 +112,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadInitialData() {
         viewModelScope.launch {
+            // 0. Load server URL and theme from preferences
+            val savedServerUrl = preferencesManager.serverUrlFlow.firstOrNull() ?: PreferencesManager.DEFAULT_SERVER_URL
+            _serverUrl.value = savedServerUrl
+            webWorker.updateBaseUrl(savedServerUrl)
+            studentWebWorker.updateBaseUrl(savedServerUrl)
+            checkServerHealth()
+
+            val savedTheme = preferencesManager.themeModeFlow.firstOrNull() ?: "system"
+            _themeMode.value = savedTheme
+
             // 1. Read local preferences immediately
             val saved = preferencesManager.savedSelectionFlow.firstOrNull()
             val savedTime = preferencesManager.lastUpdateFlow.firstOrNull()
@@ -118,14 +149,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _weeks.value = processWeekList(cachedWeeks)
                 }
 
-                // If saved week is invalid or default "0", resolve it to first known week
+                // If saved week is invalid or default "0" or blank, resolve to current week
                 if (saved != null) {
                     val knownWeekIds = cachedSchedule.map { it.weekId }.filter { it.isNotBlank() }.distinct()
                     val savedWeekId = saved.weekId
-                    if (savedWeekId.isNotBlank() && savedWeekId != ALL_WEEKS_ID && savedWeekId !in knownWeekIds && knownWeekIds.isNotEmpty()) {
-                        val firstId = knownWeekIds.first()
-                        val firstName = cachedSchedule.firstOrNull { it.weekId == firstId }?.weekName ?: saved.weekName
-                        _userSelection.value = saved.copy(weekId = firstId, weekName = firstName)
+                    if (savedWeekId != ALL_WEEKS_ID && (savedWeekId.isBlank() || savedWeekId == "0" || savedWeekId !in knownWeekIds)) {
+                        val currentWeekId = PreferencesManager.findCurrentWeekId(_weeks.value, cachedSchedule)
+                        if (currentWeekId != null) {
+                            val currentWeekName = _weeks.value.find { it.id == currentWeekId }?.name
+                                ?: cachedSchedule.firstOrNull { it.weekId == currentWeekId }?.weekName ?: saved.weekName
+                            _userSelection.value = saved.copy(weekId = currentWeekId, weekName = currentWeekName)
+                        }
                     }
                 }
 
@@ -147,10 +181,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
+                val isStale = PreferencesManager.isScheduleOlderThanWeek(lastFetchMillis, cachedSchedule ?: emptyList())
                 val shouldRefresh = PreferencesManager.shouldAutoRefresh(lastFetchMillis)
-                if (shouldRefresh || cachedSchedule.isNullOrEmpty()) {
-                    fetchSchedule(isManualRefresh = false)
+                if (isStale || shouldRefresh || cachedSchedule.isNullOrEmpty()) {
+                    fetchSchedule(isManualRefresh = isStale)
                 }
+            }
+        }
+    }
+
+    fun syncIfOlderThanWeek(force: Boolean = false) {
+        val current = _userSelection.value
+        if (!current.isComplete) return
+        if (_isLoading.value) return
+
+        viewModelScope.launch {
+            val lastFetch = preferencesManager.getLastFetchMillis()
+            val cached = _allScheduleData.value.ifEmpty {
+                preferencesManager.cachedScheduleFlow.firstOrNull() ?: emptyList()
+            }
+            if (force || PreferencesManager.isScheduleOlderThanWeek(lastFetch, cached)) {
+                fetchSchedule(isManualRefresh = true)
             }
         }
     }
@@ -342,7 +393,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _userSelection.value = _userSelection.value.copy(
                 groupId = group.id,
-                groupName = group.name
+                groupName = group.name,
+                weekId = "",
+                weekName = ""
             )
 
             try {
@@ -418,13 +471,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // so navigation/filtering work. "ALL" stays as is.
                     val current = _userSelection.value
                     if (current.weekId != ALL_WEEKS_ID) {
-                        val resolved = result.weeks.find { it.id == current.weekId } ?: result.weeks.firstOrNull()
-                        if (resolved != null && resolved.id != current.weekId) {
+                        val knownIds = result.weeks.map { it.id }
+                        val targetWeekId = if (current.weekId.isBlank() || current.weekId == "0" || current.weekId !in knownIds) {
+                            PreferencesManager.findCurrentWeekId(result.weeks, result.daySchedules) ?: result.weeks.firstOrNull()?.id
+                        } else {
+                            current.weekId
+                        }
+
+                        val resolved = result.weeks.find { it.id == targetWeekId }
+                        if (resolved != null && (resolved.id != current.weekId || resolved.name != current.weekName)) {
                             val updated = current.copy(weekId = resolved.id, weekName = resolved.name)
-                            _userSelection.value = updated
-                            preferencesManager.saveSelection(updated)
-                        } else if (resolved != null && resolved.name != current.weekName) {
-                            val updated = current.copy(weekName = resolved.name)
                             _userSelection.value = updated
                             preferencesManager.saveSelection(updated)
                         }
@@ -504,6 +560,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _studentCabinetData.value = null
             savedCredentials = null
             preferencesManager.clearStudentSession()
+        }
+    }
+
+    // ----------------- Settings & Server Methods -----------------
+
+    fun checkServerHealth() {
+        viewModelScope.launch {
+            _isCheckingHealth.value = true
+            try {
+                val health = webWorker.checkHealth()
+                _serverHealth.value = health
+            } catch (e: Exception) {
+                _serverHealth.value = ServerHealth(status = "error", service = "university", version = "")
+            } finally {
+                _isCheckingHealth.value = false
+            }
+        }
+    }
+
+    fun updateServerUrl(newUrl: String) {
+        val sanitized = newUrl.trim().trimEnd('/')
+        if (sanitized.isNotBlank()) {
+            _serverUrl.value = sanitized
+            webWorker.updateBaseUrl(sanitized)
+            studentWebWorker.updateBaseUrl(sanitized)
+            viewModelScope.launch {
+                preferencesManager.saveServerUrl(sanitized)
+                checkServerHealth()
+                loadFaculties()
+            }
+        }
+    }
+
+    fun clearScheduleCache() {
+        viewModelScope.launch {
+            preferencesManager.clearScheduleCache()
+            _allScheduleData.value = emptyList()
+            _scheduleData.value = emptyList()
+            _lastUpdateTime.value = null
+        }
+    }
+
+    fun resetSelection() {
+        viewModelScope.launch {
+            preferencesManager.clearSelection()
+            _userSelection.value = UserSelection()
+            _courses.value = emptyList()
+            _groups.value = emptyList()
+            _weeks.value = emptyList()
+            clearScheduleCache()
         }
     }
 }

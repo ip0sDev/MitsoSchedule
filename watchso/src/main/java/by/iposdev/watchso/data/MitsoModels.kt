@@ -30,8 +30,11 @@ data class Lesson(
 @Immutable
 @Serializable
 data class DaySchedule(
+    val date: String? = null,
     val dayTitle: String,
     val dateSubtitle: String = "",
+    val weekId: String = "0",
+    val weekName: String = "",
     val lessons: List<Lesson> = emptyList()
 )
 
@@ -73,10 +76,23 @@ data class UserSelection(
     val isComplete: Boolean
         get() = facultyId.isNotBlank() && courseId.isNotBlank() && groupId.isNotBlank()
 
+    val hasValidFormat: Boolean
+        get() = isComplete && !facultyId.all { it.isDigit() } && !courseId.all { it.isDigit() }
+
     val shortLabel: String
         get() = if (groupName.isNotBlank()) {
             if (courseName.isNotBlank()) "$groupName • $courseName" else groupName
         } else {
             "Выбрать группу"
         }
+}
+
+@Immutable
+@Serializable
+data class ServerHealth(
+    val status: String = "unknown",
+    val service: String = "university",
+    val version: String = ""
+) {
+    val isHealthy: Boolean get() = status.equals("healthy", ignoreCase = true) || status.equals("ok", ignoreCase = true)
 }

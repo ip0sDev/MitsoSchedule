@@ -8,7 +8,6 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
@@ -39,7 +38,16 @@ private val AbyssColorScheme = darkColorScheme(
     surfaceContainer = AbyssSurfaceContainer,
     surfaceContainerHigh = AbyssSurfaceContainerHigh,
     surfaceContainerHighest = AbyssSurfaceContainerHighest,
-    error = BiolumeErrorDark
+    error = BiolumeErrorDark,
+    onError = AbyssOnError,
+    errorContainer = AbyssErrorContainer,
+    onErrorContainer = AbyssOnErrorContainer,
+    surfaceDim = AbyssSurfaceDim,
+    surfaceBright = AbyssSurfaceBright,
+    inverseSurface = AbyssInverseSurface,
+    inverseOnSurface = AbyssInverseOnSurface,
+    inversePrimary = AbyssInversePrimary,
+    scrim = BiolumeScrim,
 )
 
 // Biolume Tidepool ColorScheme (Light)
@@ -69,7 +77,16 @@ private val TidepoolColorScheme = lightColorScheme(
     surfaceContainer = TidepoolSurfaceContainer,
     surfaceContainerHigh = TidepoolSurfaceContainerHigh,
     surfaceContainerHighest = TidepoolSurfaceContainerHighest,
-    error = BiolumeErrorLight
+    error = BiolumeErrorLight,
+    onError = TidepoolOnError,
+    errorContainer = TidepoolErrorContainer,
+    onErrorContainer = TidepoolOnErrorContainer,
+    surfaceDim = TidepoolSurfaceDim,
+    surfaceBright = TidepoolSurfaceBright,
+    inverseSurface = TidepoolInverseSurface,
+    inverseOnSurface = TidepoolInverseOnSurface,
+    inversePrimary = TidepoolInversePrimary,
+    scrim = BiolumeScrim,
 )
 
 @Composable
@@ -79,15 +96,16 @@ fun MitsoTestTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) AbyssColorScheme else TidepoolColorScheme
-    val selectionFill = if (darkTheme) AbyssSelectionFill else TidepoolSelectionFill
+    val depthTokens = if (darkTheme) AbyssDepthTokens else TidepoolDepthTokens
+    val statusColors = if (darkTheme) AbyssStatusColors else TidepoolStatusColors
 
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as? Activity)?.window
             if (window != null) {
-                window.statusBarColor = colorScheme.background.toArgb()
-                window.navigationBarColor = colorScheme.surfaceContainer.toArgb()
+                // statusBarColor / navigationBarColor с targetSdk 35+ — no-op: система рисует
+                // панели прозрачными поверх контента. Остаётся только выбрать контрастность иконок.
                 val controller = WindowCompat.getInsetsController(window, view)
                 controller.isAppearanceLightStatusBars = !darkTheme
                 controller.isAppearanceLightNavigationBars = !darkTheme
@@ -96,7 +114,9 @@ fun MitsoTestTheme(
     }
 
     CompositionLocalProvider(
-        LocalBiolumeSelectionFill provides selectionFill
+        LocalBiolumeDepth provides depthTokens,
+        LocalBiolumeStatus provides statusColors,
+        LocalBiolumeDataType provides BiolumeDataTypographyDefaults,
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

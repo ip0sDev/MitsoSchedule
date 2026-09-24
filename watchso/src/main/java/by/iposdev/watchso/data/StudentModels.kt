@@ -11,19 +11,12 @@ data class StudentCabinetData(
     val balance: String = "0.00",
     val mainDebt: String = "0.00",
     val penalty: String = "0.00",
+    val isDebt: Boolean = false,
     val moodleGroup: String = "",
     val moodleLogin: String = "",
     val moodlePassword: String = "",
     val lastFetchedTime: String = ""
 ) {
-    val isDebt: Boolean
-        get() {
-            val debtNum = mainDebt.replace(",", ".").replace(" ", "").toDoubleOrNull() ?: 0.0
-            val penaltyNum = penalty.replace(",", ".").replace(" ", "").toDoubleOrNull() ?: 0.0
-            val balanceNum = balance.replace(",", ".").replace(" ", "").toDoubleOrNull() ?: 0.0
-            return debtNum > 0.0 || penaltyNum > 0.0 || balanceNum < 0.0
-        }
-
     val initialsName: String
         get() {
             val parts = fullName.split(" ").filter { it.isNotBlank() }

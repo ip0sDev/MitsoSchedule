@@ -7,10 +7,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
-import mitsoschedule.app.ui.theme.biolumeNeumorphicRaised
+import mitsoschedule.app.ui.haptics.LocalBiolumeHaptics
+import mitsoschedule.app.ui.theme.BiolumeTheme
+import mitsoschedule.app.ui.theme.biolumeInset
+import mitsoschedule.app.ui.theme.biolumeSurface
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -92,14 +93,18 @@ fun GroupHeaderCard(
     onNextWeekClick: () -> Unit = {}
 ) {
     var weekDropdownExpanded by remember { mutableStateOf(false) }
-    val isDark = isSystemInDarkTheme()
+    val depth = BiolumeTheme.depth
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .biolumeNeumorphicRaised(shape = RoundedCornerShape(26.dp), isDark = isDark)
-            .background(MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(26.dp))
+            .biolumeSurface(
+                shape = RoundedCornerShape(26.dp),
+                tokens = depth,
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                outlineColor = MaterialTheme.colorScheme.outlineVariant,
+            )
             .padding(18.dp)
     ) {
         Column(
@@ -176,7 +181,7 @@ fun GroupHeaderCard(
                     IconButton(
                         onClick = onPreviousWeekClick,
                         enabled = canGoPrevious,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
@@ -247,7 +252,7 @@ fun GroupHeaderCard(
                     IconButton(
                         onClick = onNextWeekClick,
                         enabled = canGoNext,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
@@ -282,6 +287,17 @@ fun GroupSelectionBottomSheet(
     var draftSelection by remember(initialSelection) { mutableStateOf(initialSelection) }
     var groupSearchQuery by remember { mutableStateOf("") }
 
+    val haptics = LocalBiolumeHaptics.current
+    val depth = BiolumeTheme.depth
+    val chipShape = RoundedCornerShape(14.dp)
+    // §4.2 + §10: выбор — плотная selectionFill. primaryContainer в этой роли запрещён:
+    // он полупрозрачный, поверх разных фонов даёт разный тон и путается с сигнальным слоем.
+    val chipColors = FilterChipDefaults.filterChipColors(
+        selectedContainerColor = depth.selectionFill,
+        selectedLabelColor = MaterialTheme.colorScheme.onSurface,
+        selectedLeadingIconColor = MaterialTheme.colorScheme.primary,
+    )
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -314,7 +330,10 @@ fun GroupSelectionBottomSheet(
                     )
                 }
 
-                IconButton(onClick = onDismiss) {
+                IconButton(onClick = {
+                    haptics.click()
+                    onDismiss()
+                }) {
                     Icon(Icons.Outlined.Close, contentDescription = "Закрыть")
                 }
             }
@@ -350,6 +369,7 @@ fun GroupSelectionBottomSheet(
                                     FilterChip(
                                         selected = isSelected,
                                         onClick = {
+                                            haptics.tick()
                                             draftSelection = draftSelection.copy(
                                                 facultyId = faculty.id,
                                                 facultyName = faculty.name,
@@ -365,10 +385,7 @@ fun GroupSelectionBottomSheet(
                                             { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                         } else null,
                                         shape = RoundedCornerShape(14.dp),
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
+                                        colors = chipColors
                                     )
                                 }
                             }
@@ -391,6 +408,7 @@ fun GroupSelectionBottomSheet(
                                         FilterChip(
                                             selected = isSelected,
                                             onClick = {
+                                                haptics.tick()
                                                 draftSelection = draftSelection.copy(
                                                     formId = form.id,
                                                     formName = form.name,
@@ -405,7 +423,8 @@ fun GroupSelectionBottomSheet(
                                             leadingIcon = if (isSelected) {
                                                 { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                             } else null,
-                                            shape = RoundedCornerShape(14.dp)
+                                            shape = RoundedCornerShape(14.dp),
+                                            colors = chipColors
                                         )
                                     }
                                 }
@@ -434,6 +453,7 @@ fun GroupSelectionBottomSheet(
                                             FilterChip(
                                                 selected = isSelected,
                                                 onClick = {
+                                                    haptics.tick()
                                                     draftSelection = draftSelection.copy(
                                                         courseId = course.id,
                                                         courseName = course.name,
@@ -447,10 +467,7 @@ fun GroupSelectionBottomSheet(
                                                     { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                                 } else null,
                                                 shape = RoundedCornerShape(14.dp),
-                                                colors = FilterChipDefaults.filterChipColors(
-                                                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                                    selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                                )
+                                                colors = chipColors
                                             )
                                         }
                                     }
@@ -480,7 +497,10 @@ fun GroupSelectionBottomSheet(
                                                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                                                 trailingIcon = if (groupSearchQuery.isNotEmpty()) {
                                                     {
-                                                        IconButton(onClick = { groupSearchQuery = "" }) {
+                                                        IconButton(onClick = {
+                                                            haptics.tick()
+                                                            groupSearchQuery = ""
+                                                        }) {
                                                             Icon(Icons.Outlined.Close, contentDescription = "Очистить", modifier = Modifier.size(16.dp))
                                                         }
                                                     }
@@ -510,6 +530,7 @@ fun GroupSelectionBottomSheet(
                                                 FilterChip(
                                                     selected = isSelected,
                                                     onClick = {
+                                                        haptics.tick()
                                                         draftSelection = draftSelection.copy(
                                                             groupId = group.id,
                                                             groupName = group.name
@@ -521,10 +542,7 @@ fun GroupSelectionBottomSheet(
                                                         { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                                     } else null,
                                                     shape = RoundedCornerShape(14.dp),
-                                                    colors = FilterChipDefaults.filterChipColors(
-                                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                                    )
+                                                    colors = chipColors
                                                 )
                                             }
                                         }
@@ -540,6 +558,7 @@ fun GroupSelectionBottomSheet(
                 // Apply button
                 Button(
                     onClick = {
+                        haptics.mediumClick()
                         onApplySelection(draftSelection)
                         onDismiss()
                     },

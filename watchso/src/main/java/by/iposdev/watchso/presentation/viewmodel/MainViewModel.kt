@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import by.iposdev.watchso.data.DaySchedule
 import by.iposdev.watchso.data.OptionItem
+import by.iposdev.watchso.data.ScheduleTimeUtils
 import by.iposdev.watchso.data.StudentAuthCredentials
 import by.iposdev.watchso.data.StudentCabinetData
 import by.iposdev.watchso.data.StudentWebWorker
@@ -20,6 +21,12 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+enum class WearPickerStep {
+    FACULTY,
+    COURSE,
+    GROUP
+}
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -37,12 +44,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentScreen = mutableIntStateOf(0)
     val currentScreen: State<Int> = _currentScreen
 
+    private val _pickerStep = mutableStateOf(WearPickerStep.FACULTY)
+    val pickerStep: State<WearPickerStep> = _pickerStep
+
+    fun setPickerStep(step: WearPickerStep) {
+        _pickerStep.value = step
+    }
+
     fun navigateTo(screen: Int) {
         _currentScreen.intValue = screen
-        if (screen == 2 && _faculties.value.isEmpty()) {
-            loadFaculties()
-            if (_userSelection.value.isComplete) {
-                viewModelScope.launch { loadDependentOptions(_userSelection.value) }
+        if (screen == 2) {
+            val isOldFormat = !_userSelection.value.hasValidFormat && _userSelection.value.isComplete
+            if (isOldFormat) {
+                _userSelection.value = UserSelection()
+                viewModelScope.launch { preferencesManager.saveSelection(UserSelection()) }
+            }
+            if (_faculties.value.isEmpty()) {
+                loadFaculties()
+            }
+            _pickerStep.value = when {
+                _userSelection.value.facultyId.isBlank() -> WearPickerStep.FACULTY
+                _courses.value.isNotEmpty() && _userSelection.value.courseId.isNotBlank() && _groups.value.isNotEmpty() -> WearPickerStep.GROUP
+                _courses.value.isNotEmpty() -> WearPickerStep.COURSE
+                else -> {
+                    viewModelScope.launch { loadDependentOptions(_userSelection.value) }
+                    WearPickerStep.FACULTY
+                }
             }
         } else if (screen == 1 && _studentCabinetData.value == null && savedCredentials != null) {
             refreshStudentCabinet()
@@ -52,6 +79,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Schedule UI States
     private val _userSelection = mutableStateOf(UserSelection())
     val userSelection: State<UserSelection> = _userSelection
+
+    private val _allScheduleData = mutableStateOf<List<DaySchedule>>(emptyList())
+    val allScheduleData: State<List<DaySchedule>> = _allScheduleData
 
     private val _scheduleData = mutableStateOf<List<DaySchedule>>(emptyList())
     val scheduleData: State<List<DaySchedule>> = _scheduleData
@@ -70,6 +100,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _weeks = mutableStateOf<List<OptionItem>>(emptyList())
     val weeks: State<List<OptionItem>> = _weeks
+
+    val realWeeks: List<OptionItem>
+        get() = _weeks.value.filter { it.id != ALL_WEEKS_ID }
+
+    val canGoPreviousWeek: Boolean
+        get() {
+            val list = realWeeks
+            if (list.size <= 1) return false
+            val currentIndex = list.indexOfFirst { it.id == _userSelection.value.weekId }
+            return currentIndex > 0
+        }
+
+    val canGoNextWeek: Boolean
+        get() {
+            val list = realWeeks
+            if (list.size <= 1) return false
+            val currentIndex = list.indexOfFirst { it.id == _userSelection.value.weekId }
+            return currentIndex >= 0 && currentIndex < list.size - 1
+        }
+
+    fun selectNextWeek() {
+        val list = realWeeks
+        val currentIndex = list.indexOfFirst { it.id == _userSelection.value.weekId }
+        if (currentIndex >= 0 && currentIndex < list.size - 1) {
+            onWeekSelected(list[currentIndex + 1])
+        }
+    }
+
+    fun selectPreviousWeek() {
+        val list = realWeeks
+        val currentIndex = list.indexOfFirst { it.id == _userSelection.value.weekId }
+        if (currentIndex > 0) {
+            onWeekSelected(list[currentIndex - 1])
+        }
+    }
 
     private val _isLoading = mutableStateOf(false)
     val isLoading: State<Boolean> = _isLoading
@@ -103,10 +168,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadInitialSchedule() {
         viewModelScope.launch {
             // 1. Instant display from local DataStore cache (0ms delay)
-            val cached = preferencesManager.cachedScheduleFlow.firstOrNull()
+            val cached = preferencesManager.cachedScheduleFlow.firstOrNull() ?: emptyList()
             val lastFetchMillis = preferencesManager.lastFetchMillisFlow.firstOrNull() ?: 0L
-            if (!cached.isNullOrEmpty()) {
-                _scheduleData.value = cached
+            if (cached.isNotEmpty()) {
+                _allScheduleData.value = cached
+                val cachedWeeks = cached
+                    .map { OptionItem(it.weekId, it.weekName) }
+                    .filter { it.id.isNotBlank() && it.id != "0" }
+                    .distinctBy { it.id }
+                if (cachedWeeks.isNotEmpty()) {
+                    _weeks.value = processWeekList(cachedWeeks)
+                }
             }
             val savedTime = preferencesManager.lastUpdateFlow.firstOrNull()
             if (savedTime != null) {
@@ -115,14 +187,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // 2. Load saved user selection
             val savedSelection = preferencesManager.savedSelectionFlow.firstOrNull()
-            if (savedSelection != null && savedSelection.isComplete) {
+            if (savedSelection != null && !savedSelection.hasValidFormat && savedSelection.isComplete) {
+                Log.w(tag, "Detected obsolete numeric selection, resetting")
+                val emptySelection = UserSelection()
+                _userSelection.value = emptySelection
+                preferencesManager.saveSelection(emptySelection)
+                loadFaculties()
+            } else if (savedSelection != null && savedSelection.isComplete) {
                 _userSelection.value = savedSelection
-
-                // 3. Only fetch from network if cache is absent or auto-refresh policy warrants it
-                val shouldRefresh = WatchPreferencesManager.shouldAutoRefresh(lastFetchMillis)
-                if (shouldRefresh || cached.isNullOrEmpty()) {
-                    fetchSchedule(isManualRefresh = false)
+                if (cached.isNotEmpty()) {
+                    filterAndApplyDisplayedSchedule()
                 }
+
+                // 3. Forced sync if cache is older than a week, or normal refresh policy
+                val isStale = WatchPreferencesManager.isScheduleOlderThanWeek(lastFetchMillis, cached)
+                val shouldRefresh = WatchPreferencesManager.shouldAutoRefresh(lastFetchMillis)
+                if (isStale || shouldRefresh || cached.isEmpty()) {
+                    fetchSchedule(isManualRefresh = isStale)
+                }
+            } else {
+                loadFaculties()
+            }
+        }
+    }
+
+    fun syncIfOlderThanWeek(force: Boolean = false) {
+        val current = _userSelection.value
+        if (!current.isComplete) return
+        if (_isLoading.value) return
+
+        viewModelScope.launch {
+            val lastFetch = preferencesManager.getLastFetchMillis()
+            val cached = _allScheduleData.value.ifEmpty {
+                preferencesManager.getCachedSchedule()
+            }
+            if (force || WatchPreferencesManager.isScheduleOlderThanWeek(lastFetch, cached)) {
+                fetchSchedule(isManualRefresh = true)
             }
         }
     }
@@ -184,6 +284,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _userSelection.value = _userSelection.value.copy(
                 facultyId = faculty.id,
                 facultyName = faculty.name,
+                formId = "Dnevnaya",
+                formName = "Дневная",
                 courseId = "",
                 courseName = "",
                 groupId = "",
@@ -192,11 +294,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _courses.value = emptyList()
             _groups.value = emptyList()
             _weeks.value = emptyList()
+            _pickerStep.value = WearPickerStep.COURSE
 
             try {
                 val eduForms = webWorker.fetchEducationForms(faculty.id)
                 _forms.value = eduForms
-                val formId = _userSelection.value.formId.ifBlank { eduForms.firstOrNull()?.id ?: "Dnevnaya" }
+                val formId = eduForms.firstOrNull()?.id ?: "Dnevnaya"
+                _userSelection.value = _userSelection.value.copy(
+                    formId = formId,
+                    formName = eduForms.firstOrNull()?.name ?: "Дневная"
+                )
                 val courseList = webWorker.fetchCourses(faculty.id, formId)
                 _courses.value = courseList
             } catch (e: Exception) {
@@ -244,11 +351,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             _groups.value = emptyList()
             _weeks.value = emptyList()
+            _pickerStep.value = WearPickerStep.GROUP
 
             try {
+                val formId = _userSelection.value.formId.ifBlank { "Dnevnaya" }
                 val groupList = webWorker.fetchGroups(
                     _userSelection.value.facultyId,
-                    _userSelection.value.formId.ifBlank { "Dnevnaya" },
+                    formId,
                     course.id
                 )
                 _groups.value = groupList
@@ -274,15 +383,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val updated = _userSelection.value.copy(
                 groupId = group.id,
-                groupName = group.name
+                groupName = group.name,
+                weekId = "",
+                weekName = ""
             )
             _userSelection.value = updated
             preferencesManager.saveSelection(updated)
 
+            _pickerStep.value = WearPickerStep.FACULTY
+            _currentScreen.intValue = 0 // Navigate back to schedule
+
             try {
+                val formId = updated.formId.ifBlank { "Dnevnaya" }
                 val weekList = webWorker.fetchWeeks(
                     updated.facultyId,
-                    updated.formId.ifBlank { "Dnevnaya" },
+                    formId,
                     updated.courseId,
                     group.id
                 )
@@ -292,7 +407,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             fetchSchedule(isManualRefresh = true)
-            _currentScreen.intValue = 0 // Navigate back to schedule
         }
     }
 
@@ -301,8 +415,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             weekId = week.id,
             weekName = week.name
         )
-        fetchSchedule(isManualRefresh = true)
+        viewModelScope.launch {
+            preferencesManager.saveSelection(_userSelection.value)
+            if (_allScheduleData.value.isNotEmpty()) {
+                filterAndApplyDisplayedSchedule()
+            } else {
+                fetchSchedule(isManualRefresh = true)
+            }
+        }
         _currentScreen.intValue = 0
+    }
+
+    private fun filterAndApplyDisplayedSchedule() {
+        val all = _allScheduleData.value
+        if (all.isEmpty()) {
+            _scheduleData.value = emptyList()
+            return
+        }
+
+        var selectedWeekId = _userSelection.value.weekId
+        if (selectedWeekId.isBlank() || selectedWeekId == "0") {
+            val resolvedId = ScheduleTimeUtils.findCurrentWeekId(_weeks.value, all)
+            if (resolvedId != null) {
+                selectedWeekId = resolvedId
+                val resolvedName = _weeks.value.find { it.id == resolvedId }?.name
+                    ?: all.firstOrNull { it.weekId == resolvedId }?.weekName ?: ""
+                _userSelection.value = _userSelection.value.copy(weekId = resolvedId, weekName = resolvedName)
+                viewModelScope.launch { preferencesManager.saveSelection(_userSelection.value) }
+            }
+        }
+
+        val filtered = if (selectedWeekId == ALL_WEEKS_ID) {
+            all
+        } else {
+            all.filter { it.weekId == selectedWeekId }
+        }
+        _scheduleData.value = filtered
     }
 
     fun fetchSchedule(isManualRefresh: Boolean = true) {
@@ -317,6 +465,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _errorMessage.value = null
 
             try {
+                // 1. Fetch weeks list
                 val freshWeeks = webWorker.fetchWeeks(
                     current.facultyId,
                     current.formId.ifBlank { "Dnevnaya" },
@@ -326,38 +475,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (freshWeeks.isNotEmpty()) {
                     val processed = processWeekList(freshWeeks)
                     _weeks.value = processed
-
-                    val matchedWeek = processed.find { it.id == current.weekId }
-                    if (matchedWeek != null && matchedWeek.name != current.weekName) {
-                        _userSelection.value = current.copy(weekName = matchedWeek.name)
-                        preferencesManager.saveSelection(_userSelection.value)
-                    }
                 }
 
-                val activeSelection = _userSelection.value
-                val result = if (activeSelection.weekId == ALL_WEEKS_ID) {
-                    val targetWeekIds = _weeks.value
-                        .filter { it.id != ALL_WEEKS_ID }
-                        .map { it.id }
-                        .ifEmpty { listOf("0") }
-                    webWorker.fetchScheduleForWeeks(activeSelection, targetWeekIds)
-                } else {
-                    webWorker.fetchSchedule(activeSelection)
-                }
+                // 2. Fetch ALL weeks schedule in one request!
+                val result = webWorker.fetchScheduleForWeeks(current, emptyList())
 
                 if (result.isNotEmpty()) {
-                    _scheduleData.value = result
+                    _allScheduleData.value = result
+
+                    // Auto-resolve week to current week if empty or invalid
+                    val activeSelection = _userSelection.value
+                    if (activeSelection.weekId != ALL_WEEKS_ID) {
+                        val activeWeeks = _weeks.value.filter { it.id != ALL_WEEKS_ID }
+                        val weekExists = activeWeeks.any { it.id == activeSelection.weekId }
+                        if (!weekExists || activeSelection.weekId.isBlank() || activeSelection.weekId == "0") {
+                            val resolvedId = ScheduleTimeUtils.findCurrentWeekId(_weeks.value, result)
+                            if (resolvedId != null) {
+                                val resolvedName = _weeks.value.find { it.id == resolvedId }?.name
+                                    ?: result.firstOrNull { it.weekId == resolvedId }?.weekName ?: ""
+                                _userSelection.value = activeSelection.copy(weekId = resolvedId, weekName = resolvedName)
+                                preferencesManager.saveSelection(_userSelection.value)
+                            }
+                        } else {
+                            val matched = activeWeeks.find { it.id == activeSelection.weekId }
+                            if (matched != null && matched.name != activeSelection.weekName) {
+                                _userSelection.value = activeSelection.copy(weekName = matched.name)
+                                preferencesManager.saveSelection(_userSelection.value)
+                            }
+                        }
+                    }
+
+                    filterAndApplyDisplayedSchedule()
+
                     val timeFormat = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
                     val formattedTime = timeFormat.format(Date())
                     _lastUpdateTime.value = formattedTime
                     preferencesManager.saveSchedule(result, formattedTime, System.currentTimeMillis())
+                    notifyTileAndComplications()
                 } else {
-                    if (_scheduleData.value.isEmpty()) {
+                    if (_allScheduleData.value.isEmpty()) {
                         _errorMessage.value = "Расписание не найдено"
                     }
                 }
             } catch (e: Exception) {
-                if (_scheduleData.value.isEmpty()) {
+                if (_allScheduleData.value.isEmpty()) {
                     _errorMessage.value = "Ошибка загрузки: ${e.message}"
                 }
             } finally {
@@ -411,6 +572,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _studentCabinetData.value = null
             savedCredentials = null
             preferencesManager.clearStudentSession()
+        }
+    }
+
+    private fun notifyTileAndComplications() {
+        try {
+            val app = getApplication<Application>()
+            androidx.wear.tiles.TileService.getUpdater(app)
+                .requestUpdate(by.iposdev.watchso.tile.ScheduleTileService::class.java)
+            androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester.create(
+                app,
+                android.content.ComponentName(app, by.iposdev.watchso.complication.MainComplicationService::class.java)
+            ).requestUpdateAll()
+        } catch (_: Exception) {
         }
     }
 }

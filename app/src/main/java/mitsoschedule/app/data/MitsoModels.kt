@@ -47,7 +47,15 @@ data class Lesson(
 )
 
 @Serializable
+data class ServerHealth(
+    val status: String = "unknown",
+    val service: String = "",
+    val version: String = ""
+)
+
+@Serializable
 data class DaySchedule(
+    val date: String? = null,
     val dayTitle: String,
     val dateSubtitle: String? = null,
     val lessons: List<Lesson> = emptyList(),

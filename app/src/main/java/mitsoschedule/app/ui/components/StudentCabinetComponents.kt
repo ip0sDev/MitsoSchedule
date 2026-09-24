@@ -27,7 +27,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import mitsoschedule.app.ui.theme.biolumeNeumorphicRaised
+import mitsoschedule.app.ui.haptics.LocalBiolumeHaptics
+import mitsoschedule.app.ui.theme.BiolumeTheme
+import mitsoschedule.app.ui.theme.biolumeRaised
+import mitsoschedule.app.ui.theme.biolumeSurface
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -96,13 +99,14 @@ fun StudentLoginCard(
     var passwordVisible by remember { mutableStateOf(false) }
     var rememberMe by remember { mutableStateOf(true) }
     val focusManager = LocalFocusManager.current
-    val isDark = isSystemInDarkTheme()
+    val depth = BiolumeTheme.depth
+    val haptics = LocalBiolumeHaptics.current
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(16.dp)
-            .biolumeNeumorphicRaised(shape = RoundedCornerShape(28.dp), isDark = isDark)
+            .biolumeRaised(shape = RoundedCornerShape(28.dp), tokens = depth)
             .background(MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(28.dp))
             .padding(24.dp)
     ) {
@@ -206,7 +210,10 @@ fun StudentLoginCard(
                     Icon(Icons.Outlined.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 },
                 trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    IconButton(onClick = {
+                        haptics.toggle()
+                        passwordVisible = !passwordVisible
+                    }) {
                         Icon(
                             imageVector = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
                             contentDescription = if (passwordVisible) "Скрыть пароль" else "Показать пароль"
@@ -223,6 +230,7 @@ fun StudentLoginCard(
                     onDone = {
                         focusManager.clearFocus()
                         if (login.isNotBlank() && password.isNotBlank()) {
+                            haptics.mediumClick()
                             onLoginClick(login, password, rememberMe)
                         }
                     }
@@ -241,12 +249,18 @@ fun StudentLoginCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { rememberMe = !rememberMe },
+                    .clickable {
+                        haptics.tick()
+                        rememberMe = !rememberMe
+                    },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Checkbox(
                     checked = rememberMe,
-                    onCheckedChange = { rememberMe = it },
+                    onCheckedChange = {
+                        haptics.tick()
+                        rememberMe = it
+                    },
                     colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
                 )
                 Text(
@@ -261,6 +275,7 @@ fun StudentLoginCard(
             // Submit Button
             Button(
                 onClick = {
+                    haptics.mediumClick()
                     focusManager.clearFocus()
                     onLoginClick(login, password, rememberMe)
                 },
@@ -327,6 +342,8 @@ fun StudentCabinetContent(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val depth = BiolumeTheme.depth
+    val haptics = LocalBiolumeHaptics.current
 
     Column(
         modifier = modifier
@@ -336,10 +353,17 @@ fun StudentCabinetContent(
     ) {
         // 1. Profile Header Card
         Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .biolumeSurface(
+                    shape = RoundedCornerShape(26.dp),
+                    tokens = depth,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    outlineColor = MaterialTheme.colorScheme.outlineVariant
+                ),
             shape = RoundedCornerShape(26.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            modifier = Modifier.fillMaxWidth()
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -389,7 +413,10 @@ fun StudentCabinetContent(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
-                        onClick = onRefreshClick,
+                        onClick = {
+                            haptics.click()
+                            onRefreshClick()
+                        },
                         enabled = !isLoading
                     ) {
                         Icon(
@@ -399,7 +426,10 @@ fun StudentCabinetContent(
                         )
                     }
 
-                    IconButton(onClick = onLogoutClick) {
+                    IconButton(onClick = {
+                        haptics.click()
+                        onLogoutClick()
+                    }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Logout,
                             contentDescription = "Выйти",
@@ -412,10 +442,17 @@ fun StudentCabinetContent(
 
         // 2. Financial Account Card (Состояние лицевого счета)
         Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .biolumeSurface(
+                    shape = RoundedCornerShape(26.dp),
+                    tokens = depth,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    outlineColor = MaterialTheme.colorScheme.outlineVariant
+                ),
             shape = RoundedCornerShape(26.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            modifier = Modifier.fillMaxWidth()
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -472,7 +509,7 @@ fun StudentCabinetContent(
                 // Balance Main Highlight
                 val isNegative = data.balance.startsWith("-") || data.isDebt
                 Surface(
-                    color = if (isNegative) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f) else Color(0xFFDCFCE7),
+                    color = if (isNegative) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f) else BiolumeTheme.status.success.copy(alpha = 0.12f),
                     shape = RoundedCornerShape(20.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -484,14 +521,14 @@ fun StudentCabinetContent(
                             text = "Текущий баланс",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Medium,
-                            color = if (isNegative) MaterialTheme.colorScheme.onErrorContainer else Color(0xFF166534)
+                            color = if (isNegative) MaterialTheme.colorScheme.error else BiolumeTheme.status.success.copy(alpha = 0.7f)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (data.balance.contains("руб", ignoreCase = true)) data.balance else "${data.balance} руб.",
-                            style = MaterialTheme.typography.displayMedium,
+                            style = BiolumeTheme.dataType.dataLarge,
                             fontWeight = FontWeight.Bold,
-                            color = if (isNegative) MaterialTheme.colorScheme.error else Color(0xFF15803D)
+                            color = if (isNegative) MaterialTheme.colorScheme.error else BiolumeTheme.status.success
                         )
                     }
                 }
@@ -528,10 +565,17 @@ fun StudentCabinetContent(
 
         // 3. LMS Moodle Access Card
         Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .biolumeSurface(
+                    shape = RoundedCornerShape(26.dp),
+                    tokens = depth,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    outlineColor = MaterialTheme.colorScheme.outlineVariant
+                ),
             shape = RoundedCornerShape(26.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            modifier = Modifier.fillMaxWidth()
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -587,7 +631,7 @@ fun StudentCabinetContent(
                     MoodleCredentialRow(
                         label = "Группа",
                         value = data.moodleGroup,
-                        onCopy = { copyToClipboard(context, data.moodleGroup, "Группа скопирована") }
+                        onCopy = { copyToClipboard(context, data.moodleGroup, "Группа скопирована", haptics) }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -597,19 +641,22 @@ fun StudentCabinetContent(
                     MoodleCredentialRow(
                         label = "Логин",
                         value = data.moodleLogin,
-                        onCopy = { copyToClipboard(context, data.moodleLogin, "Логин скопирован") }
+                        onCopy = { copyToClipboard(context, data.moodleLogin, "Логин скопирован", haptics) }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 // Moodle Password
                 if (data.moodlePassword.isNotBlank()) {
-                    var isPasswordHidden by remember { mutableStateOf(false) }
+                    var isPasswordHidden by remember { mutableStateOf(true) }
                     MoodleCredentialRow(
                         label = "Пароль",
                         value = if (isPasswordHidden) "••••••••" else data.moodlePassword,
                         trailingToggle = {
-                            IconButton(onClick = { isPasswordHidden = !isPasswordHidden }) {
+                            IconButton(onClick = {
+                                haptics.toggle()
+                                isPasswordHidden = !isPasswordHidden
+                            }) {
                                 Icon(
                                     imageVector = if (isPasswordHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                                     contentDescription = null,
@@ -617,7 +664,7 @@ fun StudentCabinetContent(
                                 )
                             }
                         },
-                        onCopy = { copyToClipboard(context, data.moodlePassword, "Пароль скопирован") }
+                        onCopy = { copyToClipboard(context, data.moodlePassword, "Пароль скопирован", haptics) }
                     )
                 }
 
@@ -686,7 +733,7 @@ private fun MoodleCredentialRow(
                 )
                 Text(
                     text = value,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = BiolumeTheme.dataType.dataMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -707,9 +754,10 @@ private fun MoodleCredentialRow(
     }
 }
 
-private fun copyToClipboard(context: Context, text: String, toastMessage: String) {
+private fun copyToClipboard(context: Context, text: String, toastMessage: String, haptics: mitsoschedule.app.ui.haptics.BiolumeHaptics? = null) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val clip = ClipData.newPlainText("MITSO", text)
     clipboard.setPrimaryClip(clip)
+    haptics?.click()
     Toast.makeText(context, toastMessage, Toast.LENGTH_SHORT).show()
 }

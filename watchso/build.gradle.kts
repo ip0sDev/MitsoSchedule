@@ -13,8 +13,8 @@ android {
         applicationId = "by.iposdev.watchso"
         minSdk = 34
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.12"
+        versionCode = 3
+        versionName = "1.13"
 
     }
 
@@ -64,6 +64,14 @@ dependencies {
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.horologist.compose.tools)
     implementation(libs.androidx.watchface.complications.data.source.ktx)
+
+    // Wear OS Tiles & Protolayout
+    implementation(libs.androidx.wear.tiles)
+    implementation(libs.androidx.wear.protolayout)
+    implementation(libs.androidx.concurrent.futures.ktx)
+    implementation(libs.guava)
+    implementation(libs.androidx.wear.protolayout.material)
+    implementation(libs.androidx.wear.protolayout.expression)
 
     // ----- НОВЫЕ ЗАВИСИМОСТИ -----
     // Wear Compose UI

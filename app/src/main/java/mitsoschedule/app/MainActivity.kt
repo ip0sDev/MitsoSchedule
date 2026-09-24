@@ -7,18 +7,24 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,12 +37,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -53,6 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,12 +83,22 @@ import mitsoschedule.app.ui.components.EmptyScheduleState
 import mitsoschedule.app.ui.components.ErrorScheduleState
 import mitsoschedule.app.ui.components.GroupHeaderCard
 import mitsoschedule.app.ui.components.GroupSelectionBottomSheet
+import androidx.compose.foundation.isSystemInDarkTheme
 import mitsoschedule.app.ui.components.LoadingScheduleState
 import mitsoschedule.app.ui.components.PastDaysAccordionCard
+import mitsoschedule.app.ui.components.SettingsContent
 import mitsoschedule.app.ui.components.StudentCabinetContent
 import mitsoschedule.app.ui.components.StudentLoginCard
 import mitsoschedule.app.ui.components.classifyDaySchedule
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import mitsoschedule.app.ui.haptics.LocalBiolumeHaptics
+import mitsoschedule.app.ui.haptics.rememberBiolumeHaptics
+import mitsoschedule.app.ui.theme.BiolumeTheme
 import mitsoschedule.app.ui.theme.MitsoTestTheme
+import mitsoschedule.app.ui.theme.biolumePressable
+import mitsoschedule.app.ui.theme.biolumeRaised
+import mitsoschedule.app.ui.theme.biolumeSurface
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -88,10 +107,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MitsoTestTheme {
+            val themeMode by viewModel.themeMode
+            val isDark = when (themeMode) {
+                "dark" -> true
+                "light" -> false
+                else -> isSystemInDarkTheme()
+            }
+            MitsoTestTheme(darkTheme = isDark) {
                 MainAppScreen(viewModel = viewModel)
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.syncIfOlderThanWeek()
     }
 }
 
@@ -100,6 +130,7 @@ class MainActivity : ComponentActivity() {
 fun MainAppScreen(
     viewModel: MainViewModel
 ) {
+    val haptics = rememberBiolumeHaptics()
     val currentTab by viewModel.currentTab
     val userSelection by viewModel.userSelection
     val scheduleData by viewModel.scheduleData
@@ -118,8 +149,50 @@ fun MainAppScreen(
     val isStudentLoading by viewModel.isStudentLoading
     val studentErrorMessage by viewModel.studentErrorMessage
 
+    // Server & Settings State
+    val serverHealth by viewModel.serverHealth
+    val isCheckingHealth by viewModel.isCheckingHealth
+    val themeMode by viewModel.themeMode
+
     var isBottomSheetOpen by remember { mutableStateOf(false) }
     var isPastDaysExpanded by remember { mutableStateOf(false) }
+
+    // Haptic feedback triggers on data completion & error
+    var hadLoadingStarted by remember { mutableStateOf(false) }
+    LaunchedEffect(isLoading) {
+        if (isLoading) {
+            hadLoadingStarted = true
+        } else if (hadLoadingStarted) {
+            hadLoadingStarted = false
+            if (scheduleData.isNotEmpty()) {
+                haptics.success()
+            }
+        }
+    }
+    LaunchedEffect(errorMessage) {
+        if (!errorMessage.isNullOrBlank()) {
+            haptics.error()
+        }
+    }
+
+    var hadStudentLoadingStarted by remember { mutableStateOf(false) }
+    LaunchedEffect(isStudentLoading) {
+        if (isStudentLoading) {
+            hadStudentLoadingStarted = true
+        } else if (hadStudentLoadingStarted) {
+            hadStudentLoadingStarted = false
+            if (studentCabinetData != null) {
+                haptics.success()
+            }
+        }
+    }
+    LaunchedEffect(studentErrorMessage) {
+        if (!studentErrorMessage.isNullOrBlank()) {
+            haptics.error()
+        }
+    }
+
+    CompositionLocalProvider(LocalBiolumeHaptics provides haptics) {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -135,8 +208,13 @@ fun MainAppScreen(
                             modifier = Modifier.size(34.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
+                                val topIcon = when (currentTab) {
+                                    0 -> Icons.Outlined.School
+                                    1 -> Icons.Outlined.Person
+                                    else -> Icons.Outlined.Settings
+                                }
                                 Icon(
-                                    imageVector = if (currentTab == 0) Icons.Outlined.School else Icons.Outlined.Person,
+                                    imageVector = topIcon,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                     modifier = Modifier.size(20.dp)
@@ -144,8 +222,13 @@ fun MainAppScreen(
                             }
                         }
                         Spacer(modifier = Modifier.width(10.dp))
+                        val titleText = when (currentTab) {
+                            0 -> "МИТСО Расписание"
+                            1 -> "Личный кабинет"
+                            else -> "Настройки"
+                        }
                         Text(
-                            text = if (currentTab == 0) "МИТСО Расписание" else "Личный кабинет",
+                            text = titleText,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -154,12 +237,29 @@ fun MainAppScreen(
                 actions = {
                     if (currentTab == 1 && studentCabinetData != null) {
                         IconButton(
-                            onClick = { viewModel.refreshStudentCabinet() },
+                            onClick = {
+                                haptics.click()
+                                viewModel.refreshStudentCabinet()
+                            },
                             enabled = !isStudentLoading
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Refresh,
                                 contentDescription = "Обновить кабинет",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    } else if (currentTab == 2) {
+                        IconButton(
+                            onClick = {
+                                haptics.click()
+                                viewModel.checkServerHealth()
+                            },
+                            enabled = !isCheckingHealth
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Refresh,
+                                contentDescription = "Проверить статус",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -169,64 +269,25 @@ fun MainAppScreen(
                     containerColor = MaterialTheme.colorScheme.background
                 )
             )
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 3.dp
-            ) {
-                NavigationBarItem(
-                    selected = currentTab == 0,
-                    onClick = { viewModel.selectTab(0) },
-                    icon = {
-                        Icon(
-                            imageVector = if (currentTab == 0) Icons.Filled.CalendarMonth else Icons.Outlined.CalendarMonth,
-                            contentDescription = "Расписание"
-                        )
-                    },
-                    label = { Text("Расписание", fontWeight = if (currentTab == 0) FontWeight.Bold else FontWeight.Normal) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                    )
-                )
-
-                NavigationBarItem(
-                    selected = currentTab == 1,
-                    onClick = { viewModel.selectTab(1) },
-                    icon = {
-                        Icon(
-                            imageVector = if (currentTab == 1) Icons.Filled.Person else Icons.Outlined.Person,
-                            contentDescription = "Личный кабинет"
-                        )
-                    },
-                    label = { Text("Кабинет", fontWeight = if (currentTab == 1) FontWeight.Bold else FontWeight.Normal) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                    )
-                )
-            }
-        },
-        floatingActionButton = {
-            if (currentTab == 0 && userSelection.isComplete && scheduleData.isNotEmpty()) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.fetchSchedule() },
-                    icon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
-                    text = { Text("Обновить") },
-                    shape = RoundedCornerShape(100.dp),
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp)
-                )
-            }
         }
     ) { innerPadding ->
-        AnimatedContent(
-            targetState = currentTab,
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
-            modifier = Modifier.padding(innerPadding)
-        ) { tabIndex ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding())
+        ) {
+            // Track previous tab for directional transitions
+            var previousTab by remember { mutableIntStateOf(currentTab) }
+            AnimatedContent(
+                targetState = currentTab,
+                transitionSpec = {
+                    val direction = if (targetState > initialState) 1 else -1
+                    val enter = slideInHorizontally { fullWidth -> direction * fullWidth / 4 } + fadeIn()
+                    val exit = slideOutHorizontally { fullWidth -> -direction * fullWidth / 4 } + fadeOut()
+                    (enter togetherWith exit).using(SizeTransform(clip = false))
+                },
+                modifier = Modifier.fillMaxSize()
+            ) { tabIndex ->
             if (tabIndex == 0) {
                 // SCHEDULE TAB
                 val pastDays = remember(scheduleData) {
@@ -241,19 +302,31 @@ fun MainAppScreen(
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 80.dp),
+                    contentPadding = PaddingValues(bottom = 110.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     item {
                         GroupHeaderCard(
                             currentSelection = userSelection,
                             weeksList = weeks,
-                            onOpenSelectionClick = { isBottomSheetOpen = true },
-                            onWeekSelected = { viewModel.onWeekSelected(it) },
+                            onOpenSelectionClick = {
+                                haptics.mediumClick()
+                                isBottomSheetOpen = true
+                            },
+                            onWeekSelected = {
+                                haptics.tick()
+                                viewModel.onWeekSelected(it)
+                            },
                             canGoPrevious = viewModel.canGoPreviousWeek,
                             canGoNext = viewModel.canGoNextWeek,
-                            onPreviousWeekClick = { viewModel.selectPreviousWeek() },
-                            onNextWeekClick = { viewModel.selectNextWeek() }
+                            onPreviousWeekClick = {
+                                haptics.tick()
+                                viewModel.selectPreviousWeek()
+                            },
+                            onNextWeekClick = {
+                                haptics.tick()
+                                viewModel.selectNextWeek()
+                            }
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                     }
@@ -266,21 +339,30 @@ fun MainAppScreen(
                         item {
                             EmptyScheduleState(
                                 message = "Выберите ваш факультет, курс и группу, чтобы просмотреть актуальное расписание.",
-                                onSelectGroupClick = { isBottomSheetOpen = true }
+                                onSelectGroupClick = {
+                                    haptics.mediumClick()
+                                    isBottomSheetOpen = true
+                                }
                             )
                         }
                     } else if (!errorMessage.isNullOrBlank() && scheduleData.isEmpty()) {
                         item {
                             ErrorScheduleState(
                                 errorMessage = errorMessage ?: "Произошла ошибка при загрузке расписания",
-                                onRetryClick = { viewModel.fetchSchedule() }
+                                onRetryClick = {
+                                    haptics.click()
+                                    viewModel.fetchSchedule()
+                                }
                             )
                         }
                     } else if (scheduleData.isEmpty()) {
                         item {
                             EmptyScheduleState(
                                 message = "На выбранную неделю расписание занятий отсутствует.",
-                                onSelectGroupClick = { isBottomSheetOpen = true }
+                                onSelectGroupClick = {
+                                    haptics.mediumClick()
+                                    isBottomSheetOpen = true
+                                }
                             )
                         }
                     } else {
@@ -289,40 +371,28 @@ fun MainAppScreen(
                                 PastDaysAccordionCard(
                                     pastDaysCount = pastDays.size,
                                     isExpanded = isPastDaysExpanded,
-                                    onToggleExpand = { isPastDaysExpanded = !isPastDaysExpanded }
+                                    onToggleExpand = {
+                                        haptics.click()
+                                        isPastDaysExpanded = !isPastDaysExpanded
+                                    }
                                 )
                             }
 
                             if (isPastDaysExpanded) {
                                 items(pastDays) { daySchedule ->
-                                    AnimatedVisibility(
-                                        visible = true,
-                                        enter = fadeIn() + slideInVertically()
-                                    ) {
-                                        DayScheduleSection(daySchedule = daySchedule, isToday = false)
-                                    }
+                                    DayScheduleSection(daySchedule = daySchedule, isToday = false)
                                 }
                             }
                         }
 
                         if (todayDays.isNotEmpty()) {
                             items(todayDays) { daySchedule ->
-                                AnimatedVisibility(
-                                    visible = true,
-                                    enter = fadeIn() + slideInVertically()
-                                ) {
                                     DayScheduleSection(daySchedule = daySchedule, isToday = true)
                                 }
-                            }
                         }
 
                         items(futureDays) { daySchedule ->
-                            AnimatedVisibility(
-                                visible = true,
-                                enter = fadeIn() + slideInVertically()
-                            ) {
-                                DayScheduleSection(daySchedule = daySchedule, isToday = false)
-                            }
+                            DayScheduleSection(daySchedule = daySchedule, isToday = false)
                         }
                     }
 
@@ -331,11 +401,11 @@ fun MainAppScreen(
                         AppFooter(lastUpdateTime = lastUpdateTime)
                     }
                 }
-            } else {
+            } else if (tabIndex == 1) {
                 // STUDENT CABINET TAB
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 80.dp),
+                    contentPadding = PaddingValues(bottom = 110.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     if (studentCabinetData != null) {
@@ -364,8 +434,154 @@ fun MainAppScreen(
                         AppFooter(lastUpdateTime = studentCabinetData?.lastFetchedTime)
                     }
                 }
+            } else {
+                // SETTINGS TAB
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 12.dp, bottom = 110.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    item {
+                        SettingsContent(
+                            serverHealth = serverHealth,
+                            isCheckingHealth = isCheckingHealth,
+                            lastUpdateTime = lastUpdateTime,
+                            onCheckHealth = { viewModel.checkServerHealth() },
+                            onClearCache = { viewModel.clearScheduleCache() },
+                            onResetSelection = { viewModel.resetSelection() },
+                            currentTheme = themeMode,
+                            onThemeSelected = { viewModel.setThemeMode(it) }
+                        )
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        AppFooter(lastUpdateTime = lastUpdateTime)
+                    }
+                }
             }
         }
+
+        // Floating FAB (Schedule tab)
+        if (currentTab == 0 && userSelection.isComplete && scheduleData.isNotEmpty()) {
+            val fabDepth = BiolumeTheme.depth
+            val fabShape = RoundedCornerShape(100.dp)
+            val fabInteraction = remember { MutableInteractionSource() }
+            ExtendedFloatingActionButton(
+                onClick = {
+                    haptics.click()
+                    viewModel.fetchSchedule()
+                },
+                interactionSource = fabInteraction,
+                icon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
+                text = { Text("Обновить") },
+                shape = fabShape,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = 24.dp, bottom = 96.dp)
+                    .biolumeRaised(shape = fabShape, tokens = fabDepth)
+                    .biolumePressable(
+                        interactionSource = fabInteraction,
+                        shape = fabShape,
+                        tokens = fabDepth,
+                        glowColor = fabDepth.glowPrimary
+                    )
+            )
+        }
+
+        // Floating Navigation Bar (hangs over content)
+        val depth = BiolumeTheme.depth
+        val navShape = RoundedCornerShape(28.dp)
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            NavigationBar(
+                modifier = Modifier
+                    .clip(navShape)
+                    .biolumeSurface(
+                        shape = navShape,
+                        tokens = depth,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        outlineColor = MaterialTheme.colorScheme.outlineVariant
+                    ),
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 0.dp,
+                windowInsets = WindowInsets(0, 0, 0, 0)
+            ) {
+                NavigationBarItem(
+                    selected = currentTab == 0,
+                    onClick = {
+                        if (currentTab != 0) {
+                            haptics.tick()
+                            viewModel.selectTab(0)
+                        }
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = if (currentTab == 0) Icons.Filled.CalendarMonth else Icons.Outlined.CalendarMonth,
+                            contentDescription = "Расписание"
+                        )
+                    },
+                    label = { Text("Расписание", fontWeight = if (currentTab == 0) FontWeight.Bold else FontWeight.Normal) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        indicatorColor = depth.selectionFill
+                    )
+                )
+
+                NavigationBarItem(
+                    selected = currentTab == 1,
+                    onClick = {
+                        if (currentTab != 1) {
+                            haptics.tick()
+                            viewModel.selectTab(1)
+                        }
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = if (currentTab == 1) Icons.Filled.Person else Icons.Outlined.Person,
+                            contentDescription = "Личный кабинет"
+                        )
+                    },
+                    label = { Text("Кабинет", fontWeight = if (currentTab == 1) FontWeight.Bold else FontWeight.Normal) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        indicatorColor = depth.selectionFill
+                    )
+                )
+
+                NavigationBarItem(
+                    selected = currentTab == 2,
+                    onClick = {
+                        if (currentTab != 2) {
+                            haptics.tick()
+                            viewModel.selectTab(2)
+                        }
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = if (currentTab == 2) Icons.Filled.Settings else Icons.Outlined.Settings,
+                            contentDescription = "Настройки"
+                        )
+                    },
+                    label = { Text("Настройки", fontWeight = if (currentTab == 2) FontWeight.Bold else FontWeight.Normal) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        indicatorColor = depth.selectionFill
+                    )
+                )
+            }
+        }
+    }
 
         // Modal Selection Bottom Sheet
         if (isBottomSheetOpen) {
@@ -380,10 +596,14 @@ fun MainAppScreen(
                 onFormChanged = { viewModel.onFormSelected(it) },
                 onCourseChanged = { viewModel.onCourseSelected(it) },
                 onGroupChanged = { viewModel.onGroupSelected(it) },
-                onApplySelection = { viewModel.applySelection(it) },
+                onApplySelection = {
+                    haptics.mediumClick()
+                    viewModel.applySelection(it)
+                },
                 onDismiss = { isBottomSheetOpen = false }
             )
         }
+    }
     }
 }
 

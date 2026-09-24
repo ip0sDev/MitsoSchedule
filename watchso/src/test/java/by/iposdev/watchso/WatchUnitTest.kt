@@ -109,4 +109,112 @@ class WatchUnitTest {
         val eightDaysAgo = System.currentTimeMillis() - (8 * 24 * 60 * 60 * 1000L)
         assertTrue(by.iposdev.watchso.data.WatchPreferencesManager.shouldAutoRefresh(eightDaysAgo))
     }
+
+    @Test
+    fun testScheduleTimeUtilsCalculations() {
+        val lessons = listOf(
+            by.iposdev.watchso.data.Lesson(time = "08.15 — 09.35", subject = "Пара 1", room = "ауд. 312"),
+            by.iposdev.watchso.data.Lesson(time = "09.45 — 11.05", subject = "Пара 2", room = "ауд. 101"),
+            by.iposdev.watchso.data.Lesson(time = "11.20 — 12.40", subject = "Пара 3", room = "ауд. 202")
+        )
+
+        // 1. Before all lessons (07:30)
+        val beforeInfo = by.iposdev.watchso.data.ScheduleTimeUtils.calculateTodayTimeInfo(lessons, java.time.LocalTime.of(7, 30))
+        assertEquals(by.iposdev.watchso.data.TodayScheduleState.NOT_STARTED, beforeInfo.state)
+        assertEquals("Пара 1", beforeInfo.nextLesson?.subject)
+
+        // 2. Ongoing lesson 1 (08:30)
+        val ongoingInfo = by.iposdev.watchso.data.ScheduleTimeUtils.calculateTodayTimeInfo(lessons, java.time.LocalTime.of(8, 30))
+        assertEquals(by.iposdev.watchso.data.TodayScheduleState.ONGOING_LESSON, ongoingInfo.state)
+        assertEquals("Пара 1", ongoingInfo.currentLesson?.subject)
+        assertEquals("ауд. 312", ongoingInfo.currentLesson?.room)
+        assertEquals("Пара 2", ongoingInfo.nextLesson?.subject)
+
+        // 3. Break between lessons (09:40)
+        val breakInfo = by.iposdev.watchso.data.ScheduleTimeUtils.calculateTodayTimeInfo(lessons, java.time.LocalTime.of(9, 40))
+        assertEquals(by.iposdev.watchso.data.TodayScheduleState.BREAK_BETWEEN_LESSONS, breakInfo.state)
+        assertEquals("Пара 2", breakInfo.nextLesson?.subject)
+        assertEquals(5L, breakInfo.minutesToNext)
+
+        // 4. After all lessons (13:00)
+        val afterInfo = by.iposdev.watchso.data.ScheduleTimeUtils.calculateTodayTimeInfo(lessons, java.time.LocalTime.of(13, 0))
+        assertEquals(by.iposdev.watchso.data.TodayScheduleState.FINISHED, afterInfo.state)
+    }
+
+    @Test
+    fun testIsScheduleOlderThanWeek() {
+        val now = System.currentTimeMillis()
+        val today = java.time.LocalDate.of(2026, 9, 24)
+
+        // 1. Zero timestamp -> always older than week
+        assertTrue(by.iposdev.watchso.data.WatchPreferencesManager.isScheduleOlderThanWeek(0L, emptyList(), today))
+
+        // 2. Eight days ago timestamp -> true
+        val eightDaysAgo = now - (8 * 24 * 60 * 60 * 1000L)
+        assertTrue(by.iposdev.watchso.data.WatchPreferencesManager.isScheduleOlderThanWeek(eightDaysAgo, emptyList(), today))
+
+        // 3. Fresh timestamp but empty schedules -> true
+        assertTrue(by.iposdev.watchso.data.WatchPreferencesManager.isScheduleOlderThanWeek(now, emptyList(), today))
+
+        // 4. Fresh timestamp with past schedule (e.g., from September 10) -> true
+        val oldSchedule = listOf(
+            by.iposdev.watchso.data.DaySchedule(
+                dayTitle = "Четверг, 10 сентября",
+                lessons = listOf(by.iposdev.watchso.data.Lesson(time = "08.15 — 09.35", subject = "Test", room = "101"))
+            )
+        )
+        assertTrue(by.iposdev.watchso.data.WatchPreferencesManager.isScheduleOlderThanWeek(now, oldSchedule, today))
+
+        // 5. Fresh timestamp with current week schedule (September 24) -> false
+        val currentSchedule = listOf(
+            by.iposdev.watchso.data.DaySchedule(
+                dayTitle = "Четверг, 24 сентября",
+                lessons = listOf(by.iposdev.watchso.data.Lesson(time = "08.15 — 09.35", subject = "Test", room = "101"))
+            )
+        )
+        assertFalse(by.iposdev.watchso.data.WatchPreferencesManager.isScheduleOlderThanWeek(now, currentSchedule, today))
+    }
+
+    @Test
+    fun testFindCurrentWeekId() {
+        val today = java.time.LocalDate.of(2026, 9, 24) // Thursday in week 4
+
+        val weeks = listOf(
+            by.iposdev.watchso.data.OptionItem(id = "1", name = "31 августа - 06 сентября"),
+            by.iposdev.watchso.data.OptionItem(id = "2", name = "07 сентября - 13 сентября"),
+            by.iposdev.watchso.data.OptionItem(id = "3", name = "14 сентября - 20 сентября"),
+            by.iposdev.watchso.data.OptionItem(id = "4", name = "21 сентября - 27 сентября"),
+            by.iposdev.watchso.data.OptionItem(id = "5", name = "28 сентября - 04 октября")
+        )
+
+        val schedules = listOf(
+            by.iposdev.watchso.data.DaySchedule(dayTitle = "Понедельник, 31 августа", weekId = "1", weekName = "31 августа - 06 сентября"),
+            by.iposdev.watchso.data.DaySchedule(dayTitle = "Вторник, 01 сентября", weekId = "1", weekName = "31 августа - 06 сентября"),
+            by.iposdev.watchso.data.DaySchedule(dayTitle = "Понедельник, 21 сентября", weekId = "4", weekName = "21 сентября - 27 сентября"),
+            by.iposdev.watchso.data.DaySchedule(dayTitle = "Четверг, 24 сентября", weekId = "4", weekName = "21 сентября - 27 сентября"),
+            by.iposdev.watchso.data.DaySchedule(dayTitle = "Понедельник, 28 сентября", weekId = "5", weekName = "28 сентября - 04 октября")
+        )
+
+        val currentWeekId = by.iposdev.watchso.data.ScheduleTimeUtils.findCurrentWeekId(weeks, schedules, today)
+        assertEquals("4", currentWeekId)
+    }
+
+    @Test
+    fun testFindTodayScheduleDoesNotMatchWrongWeek() {
+        val today = java.time.LocalDate.of(2026, 9, 24) // Thursday, 24 September
+
+        // Schedule only has Thursday, 03 September from week 1
+        val week1Only = listOf(
+            by.iposdev.watchso.data.DaySchedule(
+                dayTitle = "Четверг, 03 сентября",
+                lessons = listOf(by.iposdev.watchso.data.Lesson(time = "08.15 — 09.35", subject = "Old Lesson"))
+            )
+        )
+
+        // Must NOT match 03 сентября as today!
+        val todaySched = by.iposdev.watchso.data.ScheduleTimeUtils.findTodaySchedule(week1Only, today)
+        org.junit.Assert.assertNull(todaySched)
+    }
 }
+
+

@@ -1,170 +1,103 @@
 package mitsoschedule.app
 
 import android.util.Log
-import mitsoschedule.app.data.DaySchedule
-import mitsoschedule.app.data.DepDropResponse
-import mitsoschedule.app.data.Lesson
-import mitsoschedule.app.data.OptionItem
-import mitsoschedule.app.data.SubgroupInfo
-import mitsoschedule.app.data.UserSelection
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.FormBody
-import okhttp3.JavaNetCookieJar
+import mitsoschedule.app.data.DaySchedule
+import mitsoschedule.app.data.Lesson
+import mitsoschedule.app.data.OptionItem
+import mitsoschedule.app.data.PreferencesManager
+import mitsoschedule.app.data.ServerHealth
+import mitsoschedule.app.data.SubgroupInfo
+import mitsoschedule.app.data.UserSelection
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.jsoup.Jsoup
-import java.io.IOException
-import java.net.CookieManager
-import java.net.CookiePolicy
-import java.security.cert.X509Certificate
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
 
-class WebWorker {
+class WebWorker(
+    private var baseUrl: String = PreferencesManager.DEFAULT_SERVER_URL
+) {
 
-    private val client: OkHttpClient
     private val TAG = "WebWorker"
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .build()
 
-    private val baseUrl = "https://apps.mitso.by/frontend/web/schedule"
-    private val groupScheduleUrl = "$baseUrl/group-schedule"
-
-    init {
-        val trustAllCerts = arrayOf<TrustManager>(
-            object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-            }
-        )
-
-        val sslContext = SSLContext.getInstance("TLS")
-        sslContext.init(null, trustAllCerts, java.security.SecureRandom())
-        val sslSocketFactory = sslContext.socketFactory
-
-        val cookieManager = CookieManager()
-        cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL)
-        val cookieJar = JavaNetCookieJar(cookieManager)
-
-        client = OkHttpClient.Builder()
-            .cookieJar(cookieJar)
-            .sslSocketFactory(sslSocketFactory, trustAllCerts[0] as X509TrustManager)
-            .hostnameVerifier { _, _ -> true }
-            .connectTimeout(25, TimeUnit.SECONDS)
-            .readTimeout(25, TimeUnit.SECONDS)
-            .writeTimeout(25, TimeUnit.SECONDS)
-            .build()
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        coerceInputValues = true
     }
 
-    private var cachedCsrfToken: String = ""
+    fun updateBaseUrl(newUrl: String) {
+        baseUrl = newUrl.trimEnd('/')
+    }
+
+    suspend fun checkHealth(): ServerHealth {
+        return withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder()
+                    .url("$baseUrl/health")
+                    .get()
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext ServerHealth(status = "error", service = "university", version = "unknown")
+                    }
+                    val body = response.body?.string().orEmpty()
+                    json.decodeFromString<ServerHealth>(body)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "checkHealth failed: ${e.message}", e)
+                ServerHealth(status = "unreachable", service = "university", version = "")
+            }
+        }
+    }
 
     suspend fun getCSRFTokenAndFaculties(): Pair<String, List<OptionItem>> {
         return withContext(Dispatchers.IO) {
             try {
-                val request = Request.Builder().url(groupScheduleUrl).get().build()
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.e(TAG, "getCSRFTokenAndFaculties failed: ${response.code}")
-                        return@withContext Pair("", emptyList())
-                    }
-                    val html = response.body.string()
-                    val doc = Jsoup.parse(html)
-                    val token = doc.select("meta[name=csrf-token]").attr("content")
-                    cachedCsrfToken = token
-
-                    val faculties = doc.select("select#faculty-id option")
-                        .map { OptionItem(id = it.attr("value"), name = it.text().trim()) }
-                        .filter { it.id.isNotBlank() }
-
-                    Pair(token, faculties)
-                }
+                val list = fetchList("$baseUrl/api/v1/schedule/faculties")
+                Pair("", list)
             } catch (e: Exception) {
-                Log.e(TAG, "Error fetching faculties: ${e.message}", e)
+                Log.e(TAG, "getCSRFTokenAndFaculties failed: ${e.message}", e)
                 Pair("", emptyList())
             }
         }
     }
 
-    private suspend fun ensureCsrfToken(): String {
-        if (cachedCsrfToken.isNotBlank()) return cachedCsrfToken
-        val (token, _) = getCSRFTokenAndFaculties()
-        return token
-    }
-
-    private suspend fun postDepDrop(url: String, parents: List<String>): List<OptionItem> {
-        return withContext(Dispatchers.IO) {
-            try {
-                val token = ensureCsrfToken()
-                val formBuilder = FormBody.Builder()
-                    .add("_csrf-frontend", token)
-
-                parents.forEach { parent ->
-                    formBuilder.add("depdrop_parents[]", parent)
-                }
-
-                val request = Request.Builder()
-                    .url(url)
-                    .post(formBuilder.build())
-                    .build()
-
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.e(TAG, "DepDrop request to $url failed: ${response.code}")
-                        return@withContext emptyList()
-                    }
-                    val responseBody = response.body.string()
-                    parseDepDropJson(responseBody)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Exception in postDepDrop for $url: ${e.message}", e)
-                emptyList()
-            }
-        }
-    }
-
-    fun parseDepDropJson(jsonString: String): List<OptionItem> {
-        return try {
-            val jsonElement = json.parseToJsonElement(jsonString)
-            val outputArray = jsonElement.jsonObject["output"]?.jsonArray
-            outputArray?.mapNotNull { itemElement ->
-                val obj = itemElement.jsonObject
-                val id = when (val idPrim = obj["id"]?.jsonPrimitive) {
-                    null -> ""
-                    else -> idPrim.content
-                }
-                val name = obj["name"]?.jsonPrimitive?.content ?: ""
-                if (id.isNotBlank() || name.isNotBlank()) OptionItem(id = id, name = name) else null
-            } ?: emptyList()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing depdrop JSON: $jsonString", e)
-            emptyList()
-        }
-    }
-
     suspend fun fetchEducationForms(facultyId: String): List<OptionItem> {
-        return postDepDrop("$baseUrl/education", listOf(facultyId))
+        val encodedFaculty = URLEncoder.encode(facultyId, "UTF-8")
+        return fetchList("$baseUrl/api/v1/schedule/forms?facultyId=$encodedFaculty")
     }
 
     suspend fun fetchCourses(facultyId: String, formId: String): List<OptionItem> {
-        return postDepDrop("$baseUrl/course", listOf(facultyId, formId))
+        val encodedFaculty = URLEncoder.encode(facultyId, "UTF-8")
+        val encodedForm = URLEncoder.encode(formId, "UTF-8")
+        return fetchList("$baseUrl/api/v1/schedule/courses?facultyId=$encodedFaculty&formId=$encodedForm")
     }
 
     suspend fun fetchGroups(facultyId: String, formId: String, courseId: String): List<OptionItem> {
-        return postDepDrop("$baseUrl/group", listOf(facultyId, formId, courseId))
+        val encodedFaculty = URLEncoder.encode(facultyId, "UTF-8")
+        val encodedForm = URLEncoder.encode(formId, "UTF-8")
+        val encodedCourse = URLEncoder.encode(courseId, "UTF-8")
+        return fetchList("$baseUrl/api/v1/schedule/groups?facultyId=$encodedFaculty&formId=$encodedForm&courseId=$encodedCourse")
     }
 
     suspend fun fetchWeeks(facultyId: String, formId: String, courseId: String, groupId: String): List<OptionItem> {
-        return postDepDrop("$baseUrl/week", listOf(facultyId, formId, courseId, groupId))
+        val encodedFaculty = URLEncoder.encode(facultyId, "UTF-8")
+        val encodedForm = URLEncoder.encode(formId, "UTF-8")
+        val encodedCourse = URLEncoder.encode(courseId, "UTF-8")
+        val encodedGroup = URLEncoder.encode(groupId, "UTF-8")
+        return fetchList("$baseUrl/api/v1/schedule/weeks?facultyId=$encodedFaculty&formId=$encodedForm&courseId=$encodedCourse&groupId=$encodedGroup")
     }
 
     data class ScheduleFetchResult(
@@ -174,133 +107,83 @@ class WebWorker {
 
     suspend fun fetchScheduleAndAvailableWeeks(selection: UserSelection): ScheduleFetchResult {
         return withContext(Dispatchers.IO) {
-            val token = ensureCsrfToken()
-            if (token.isEmpty()) {
-                Log.e(TAG, "fetchScheduleAndAvailableWeeks - CSRF token is empty")
-                return@withContext ScheduleFetchResult()
-            }
-
-            val initialWeekId = selection.weekId.ifBlank { "0" }
-            val formBody = FormBody.Builder()
-                .add("_csrf-frontend", token)
-                .add("ScheduleSearch[fak]", selection.facultyId)
-                .add("ScheduleSearch[form]", selection.formId.ifBlank { "Dnevnaya" })
-                .add("ScheduleSearch[kurse]", selection.courseId)
-                .add("ScheduleSearch[group_class]", selection.groupId)
-                .add("ScheduleSearch[week]", if (initialWeekId == "ALL") "0" else initialWeekId)
-                .build()
-
-            val request = Request.Builder().url(groupScheduleUrl).post(formBody).build()
             try {
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.e(TAG, "fetchScheduleAndAvailableWeeks - Unsuccessful response: ${response.code}")
-                        return@withContext ScheduleFetchResult()
-                    }
-                    val html = response.body.string()
-                    val doc = Jsoup.parse(html)
+                // 1. Fetch weeks list
+                val weeks = fetchWeeks(
+                    selection.facultyId,
+                    selection.formId.ifBlank { "Dnevnaya" },
+                    selection.courseId,
+                    selection.groupId
+                )
 
-                    // 1. Extract week options from <select id="week-selector">
-                    val extractedWeeks = doc.select("select#week-selector option, select#week-id option, select[name='ScheduleSearch[week]'] option")
-                        .map { OptionItem(id = it.attr("value"), name = it.text().trim()) }
-                        .filter { it.id.isNotBlank() }
-
-                    val allDays = mutableListOf<DaySchedule>()
-
-                    // 2. Parse ALL <div class="weekly-schedule"> elements returned in HTML
-                    val scheduleDivs = doc.select("div.weekly-schedule")
-                    scheduleDivs.forEachIndexed { index, div ->
-                        val divId = div.attr("id").removePrefix("schedule-").trim()
-                        val weekItem = extractedWeeks.find { it.id == divId || it.name == divId }
-                            ?: extractedWeeks.getOrNull(index)
-
-                        val weekId = weekItem?.id ?: divId.ifBlank { "0" }
-                        val weekName = weekItem?.name ?: divId.ifBlank { "Текущая неделя" }
-
-                        val rawText = div.text().trim()
-                        val parsedDays = parseScheduleString(rawText).map { day ->
-                            day.copy(weekId = weekId, weekName = weekName)
-                        }
-                        allDays.addAll(parsedDays)
-                    }
-
-                    // Fallback if no weekly-schedule divs found
-                    if (allDays.isEmpty()) {
-                        val fallbackDiv = doc.select("div.weekly-schedule").first()?.text()?.trim().orEmpty()
-                        val fallbackDays = parseScheduleString(fallbackDiv)
-                        allDays.addAll(fallbackDays)
-                    }
-
-                    Log.d(TAG, "SUCCESS: Extracted ${extractedWeeks.size} weeks and ${allDays.size} total days")
-                    ScheduleFetchResult(weeks = extractedWeeks, daySchedules = allDays)
-                }
+                // 2. Fetch all weeks schedule in one request
+                val days = fetchScheduleInternal(selection, weekId = "all")
+                ScheduleFetchResult(weeks = weeks, daySchedules = days)
             } catch (e: Exception) {
-                Log.e(TAG, "Error fetching schedule and weeks: ${e.message}", e)
+                Log.e(TAG, "fetchScheduleAndAvailableWeeks failed: ${e.message}", e)
                 ScheduleFetchResult()
             }
         }
     }
 
-    private fun logLargeString(tag: String, prefix: String, str: String) {
-        val maxChunkSize = 3000
-        var i = 0
-        val total = str.length
-        while (i < total) {
-            val end = Math.min(i + maxChunkSize, total)
-            Log.d(tag, "$prefix [${i / maxChunkSize + 1}]: ${str.substring(i, end)}")
-            i += maxChunkSize
-        }
-    }
-
     suspend fun fetchSchedule(selection: UserSelection): List<DaySchedule> {
         return withContext(Dispatchers.IO) {
-            val token = ensureCsrfToken()
-            if (token.isEmpty()) {
-                Log.e(TAG, "fetchSchedule - CSRF token is empty")
-                return@withContext emptyList()
-            }
-
-            val formBody = FormBody.Builder()
-                .add("_csrf-frontend", token)
-                .add("ScheduleSearch[fak]", selection.facultyId)
-                .add("ScheduleSearch[form]", selection.formId.ifBlank { "Dnevnaya" })
-                .add("ScheduleSearch[kurse]", selection.courseId)
-                .add("ScheduleSearch[group_class]", selection.groupId)
-                .add("ScheduleSearch[week]", selection.weekId.ifBlank { "0" })
-                .build()
-
-            val request = Request.Builder().url(groupScheduleUrl).post(formBody).build()
-            Log.d(TAG, "RAW_LOG: fetchSchedule POST for week='${selection.weekId}'")
             try {
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.e(TAG, "fetchSchedule - Unsuccessful response: ${response.code}")
-                        return@withContext emptyList()
-                    }
-                    val html = response.body.string()
-                    Log.d(TAG, "RAW_LOG: fetchSchedule response html len=${html.length} for week='${selection.weekId}'")
-                    logLargeString(TAG, "RAW_LOG_SINGLE_WEEK_${selection.weekId}", html)
-
-                    val doc = Jsoup.parse(html)
-                    val scheduleDiv = doc.select("div.weekly-schedule").first()
-                    val rawScheduleText = scheduleDiv?.text()?.trim()
-
-                    if (rawScheduleText.isNullOrEmpty()) {
-                        Log.w(TAG, "Weekly schedule container not found in response HTML for week '${selection.weekId}'")
-                        return@withContext emptyList()
-                    }
-
-                    val parsed = parseScheduleString(rawScheduleText)
-                    Log.d(TAG, "RAW_LOG: fetchSchedule parsed ${parsed.size} days for week '${selection.weekId}'")
-                    parsed
-                }
+                fetchScheduleInternal(selection, weekId = selection.weekId.ifBlank { "1" })
             } catch (e: Exception) {
-                Log.e(TAG, "Error fetching schedule: ${e.message}", e)
+                Log.e(TAG, "fetchSchedule failed: ${e.message}", e)
                 emptyList()
             }
         }
     }
 
+    private suspend fun fetchScheduleInternal(selection: UserSelection, weekId: String): List<DaySchedule> {
+        return withContext(Dispatchers.IO) {
+            val urlBuilder = "$baseUrl/api/v1/schedule".toHttpUrlOrNull()?.newBuilder()
+                ?: return@withContext emptyList()
+
+            urlBuilder.addQueryParameter("facultyId", selection.facultyId)
+            urlBuilder.addQueryParameter("formId", selection.formId.ifBlank { "Dnevnaya" })
+            urlBuilder.addQueryParameter("courseId", selection.courseId)
+            urlBuilder.addQueryParameter("groupId", selection.groupId)
+            urlBuilder.addQueryParameter("weekId", weekId)
+
+            val request = Request.Builder()
+                .url(urlBuilder.build())
+                .get()
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "fetchSchedule request failed: code ${response.code}")
+                    return@withContext emptyList()
+                }
+                val body = response.body?.string().orEmpty()
+                json.decodeFromString<List<DaySchedule>>(body)
+            }
+        }
+    }
+
+    private suspend fun fetchList(url: String): List<OptionItem> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder().url(url).get().build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.e(TAG, "fetchList failed for $url: ${response.code}")
+                        return@withContext emptyList()
+                    }
+                    val body = response.body?.string().orEmpty()
+                    json.decodeFromString<List<OptionItem>>(body)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception in fetchList for $url: ${e.message}", e)
+                emptyList()
+            }
+        }
+    }
+
+    // Helper functions preserved for backward compatibility and tests
     fun parseScheduleString(scheduleText: String): List<DaySchedule> {
         val daySchedules = mutableListOf<DaySchedule>()
         if (scheduleText.isBlank()) return emptyList()
@@ -308,9 +191,7 @@ class WebWorker {
         val dayHeaderRegex = """(Понедельник|Вторник|Среда|Четверг|Пятница|Суббота|Воскресенье),\s*(\d{1,2}\s+\p{L}+)""".toRegex()
         val dayMatches = dayHeaderRegex.findAll(scheduleText).toList()
 
-        if (dayMatches.isEmpty()) {
-            return emptyList()
-        }
+        if (dayMatches.isEmpty()) return emptyList()
 
         dayMatches.forEachIndexed { index, matchResult ->
             val dayTitle = matchResult.groupValues[1]
@@ -351,19 +232,6 @@ class WebWorker {
         return daySchedules
     }
 
-    fun groupLessonsByTime(lessons: List<Lesson>): List<Lesson> = Companion.groupLessonsByTime(lessons)
-
-    fun cleanDayLessons(lessons: List<Lesson>): List<Lesson> {
-        val firstRealIndex = lessons.indexOfFirst { !it.isEmptyWindow }
-        val lastRealIndex = lessons.indexOfLast { !it.isEmptyWindow }
-
-        if (firstRealIndex == -1 || lastRealIndex == -1) {
-            return emptyList() // No real classes on this day
-        }
-
-        return lessons.subList(firstRealIndex, lastRealIndex + 1)
-    }
-
     private fun parseSingleLesson(raw: String): Lesson {
         val timeRegex = Regex("""^(\d{1,2}[.:]\d{2}\s*[-–—]\s*\d{1,2}[.:]\d{2})""")
         var timeMatch = timeRegex.find(raw)
@@ -389,7 +257,6 @@ class WebWorker {
             )
         }
 
-        // Check if text has multiple subgroups separated by " / " or " // "
         if (text.contains(" / ") || text.contains(" // ")) {
             val parts = text.split(Regex("""\s*/\s*|\s*//\s*"""))
             val hasMultipleSubgroups = parts.size > 1 && parts.any { p ->
@@ -462,12 +329,10 @@ class WebWorker {
             """(?i)\b(?:ауд\.|каб\.|аудитория|кабинет|зал|с/з|спортзал|актовый\s*зал)\s*([0-9а-яА-Яa-zA-Z/-]+(?:\s*-\s*[0-9а-яА-Яa-zA-Z/-]+)?(?:\s*\([а-яА-Яa-zA-Z0-9.\s]+\))?)"""
         )
 
-        // Matches 63 (к), 62 (k), 63 (к.), 51-52 (к) anywhere in text
         val PAREN_ROOM_REGEX = Regex(
             """\b(\d{1,3}(?:\s*-\s*\d{1,3})?\s*\([а-яА-Яa-zA-Z0-9.\s]+\))"""
         )
 
-        // Matches 51-52 or similar ranges
         val RANGE_ROOM_REGEX = Regex(
             """(?<=\s|^)(\d{1,3}\s*-\s*\d{1,3})(?=\s|$|[.,;/-])"""
         )
@@ -505,7 +370,6 @@ class WebWorker {
         fun extractRoomFromText(text: String): Pair<String?, String> {
             val current = text.trim()
 
-            // 1. Explicit room keyword like "ауд. 312", "каб. 51-52"
             val explicitMatch = EXPLICIT_ROOM_REGEX.find(current)
             if (explicitMatch != null) {
                 val rawVal = explicitMatch.value.trim()
@@ -513,7 +377,6 @@ class WebWorker {
                 return Pair(rawVal, cleaned)
             }
 
-            // 2. Special room words without number: "спортзал", "с/з", "актовый зал"
             val specialMatch = SPECIAL_ROOM_WORDS_REGEX.find(current)
             if (specialMatch != null) {
                 val rawVal = specialMatch.value.trim()
@@ -521,7 +384,6 @@ class WebWorker {
                 return Pair(rawVal, cleaned)
             }
 
-            // 3. Parenthesis room like "63 (к)", "62 (к)", "63 (k)"
             val parenMatch = PAREN_ROOM_REGEX.find(current)
             if (parenMatch != null) {
                 val rawVal = parenMatch.value.trim()
@@ -530,7 +392,6 @@ class WebWorker {
                 return Pair(formatted, cleaned)
             }
 
-            // 4. Range room like "51-52"
             val rangeMatch = RANGE_ROOM_REGEX.find(current)
             if (rangeMatch != null) {
                 val rawVal = rangeMatch.value.trim()
@@ -539,7 +400,6 @@ class WebWorker {
                 return Pair(formatted, cleaned)
             }
 
-            // 5. Standalone 2-3 digit number room
             val numMatch = STANDALONE_NUMBER_ROOM_REGEX.find(current)
             if (numMatch != null) {
                 val rawVal = numMatch.value.trim()
@@ -602,10 +462,8 @@ class WebWorker {
 
         fun normalizeLesson(lesson: Lesson): Lesson {
             if (lesson.isEmptyWindow) return lesson
-
             val cleanedSubject = cleanSubjectTitle(lesson.subject)
 
-            // Case 1: Subgroups already present
             if (lesson.subgroups.isNotEmpty()) {
                 val fullContext = "${lesson.rawText} ${lesson.subject}"
                 val normalizedSubgroups = lesson.subgroups.map { sg ->
@@ -645,7 +503,6 @@ class WebWorker {
                 )
             }
 
-            // Case 2: Subgroups not structured yet, but text or subject contains multiple subgroups
             val fullRaw = if (lesson.rawText.isNotBlank()) lesson.rawText else lesson.subject
             val rawWithoutTime = fullRaw.replace(Regex("""^(\d{1,2}[.:]\d{2}\s*[-–—]\s*\d{1,2}[.:]\d{2})\s*"""), "").trim()
 
@@ -687,7 +544,6 @@ class WebWorker {
                 }
             }
 
-            // Case 3: Single lesson without subgroups
             var singleRoom = lesson.room
             if (singleRoom.isNullOrBlank()) {
                 val (foundRoom, _) = extractRoomFromText("${lesson.subject} ${lesson.rawText}")
@@ -783,6 +639,13 @@ class WebWorker {
                 }
             }
             return result
+        }
+
+        fun cleanDayLessons(lessons: List<Lesson>): List<Lesson> {
+            val firstRealIndex = lessons.indexOfFirst { !it.isEmptyWindow }
+            val lastRealIndex = lessons.indexOfLast { !it.isEmptyWindow }
+            if (firstRealIndex == -1 || lastRealIndex == -1) return emptyList()
+            return lessons.subList(firstRealIndex, lastRealIndex + 1)
         }
 
         fun formatTimeRange(rawTime: String): String {

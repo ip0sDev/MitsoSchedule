@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -26,6 +27,15 @@ class WatchPreferencesManager(private val context: Context) {
         private val KEY_CACHED_SCHEDULE = stringPreferencesKey("watch_cached_schedule_json")
         private val KEY_STUDENT_CREDENTIALS = stringPreferencesKey("watch_student_auth_credentials")
         private val KEY_STUDENT_CABINET_DATA = stringPreferencesKey("watch_student_cached_cabinet_data")
+        const val ONE_WEEK_MILLIS = 7 * 24 * 60 * 60 * 1000L
+
+        fun isScheduleOlderThanWeek(
+            lastFetchMillis: Long,
+            schedules: List<DaySchedule> = emptyList(),
+            today: LocalDate = LocalDate.now()
+        ): Boolean {
+            return ScheduleTimeUtils.isScheduleOlderThanWeek(lastFetchMillis, schedules, today)
+        }
 
         fun shouldAutoRefresh(lastFetchMillis: Long): Boolean {
             if (lastFetchMillis <= 0L) return true
@@ -33,6 +43,9 @@ class WatchPreferencesManager(private val context: Context) {
             val now = System.currentTimeMillis()
             val elapsedMillis = now - lastFetchMillis
             if (elapsedMillis < 0) return true
+
+            // Если старше 7 дней (недели) — ВСЕГДА обновляем
+            if (elapsedMillis >= ONE_WEEK_MILLIS) return true
 
             val dayOfWeek = LocalDate.now().dayOfWeek
             val isFridayOrLater = dayOfWeek == DayOfWeek.FRIDAY ||
@@ -44,9 +57,7 @@ class WatchPreferencesManager(private val context: Context) {
                 val oneDayMillis = 24 * 60 * 60 * 1000L
                 elapsedMillis >= oneDayMillis
             } else {
-                // Понедельник - четверг: не обновляем автоматически, если кэш младше 7 дней (недели)
-                val oneWeekMillis = 7 * 24 * 60 * 60 * 1000L
-                elapsedMillis >= oneWeekMillis
+                false
             }
         }
     }
@@ -143,4 +154,12 @@ class WatchPreferencesManager(private val context: Context) {
             preferences.remove(KEY_STUDENT_CABINET_DATA)
         }
     }
+
+    suspend fun getCachedSchedule(): List<DaySchedule> = cachedScheduleFlow.firstOrNull() ?: emptyList()
+
+    suspend fun getSavedSelection(): UserSelection? = savedSelectionFlow.firstOrNull()
+
+    suspend fun getLastUpdateTime(): String? = lastUpdateFlow.firstOrNull()
+
+    suspend fun getLastFetchMillis(): Long = lastFetchMillisFlow.firstOrNull() ?: 0L
 }
