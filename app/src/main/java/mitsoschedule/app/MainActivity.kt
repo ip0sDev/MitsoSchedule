@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FreeBreakfast
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.School
@@ -52,9 +53,6 @@ import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -81,6 +79,7 @@ import mitsoschedule.app.ui.components.DayScheduleSection
 import mitsoschedule.app.ui.components.DayTimelineCategory
 import mitsoschedule.app.ui.components.EmptyScheduleState
 import mitsoschedule.app.ui.components.ErrorScheduleState
+import mitsoschedule.app.ui.components.ExpressiveFloatingNavBar
 import mitsoschedule.app.ui.components.GroupHeaderCard
 import mitsoschedule.app.ui.components.GroupSelectionBottomSheet
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -235,7 +234,29 @@ fun MainAppScreen(
                     }
                 },
                 actions = {
-                    if (currentTab == 1 && studentCabinetData != null) {
+                    if (currentTab == 0 && userSelection.isComplete) {
+                        IconButton(
+                            onClick = {
+                                haptics.click()
+                                viewModel.fetchSchedule(isManualRefresh = true)
+                            },
+                            enabled = !isLoading
+                        ) {
+                            if (isLoading) {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Outlined.Refresh,
+                                    contentDescription = "Обновить расписание",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    } else if (currentTab == 1 && studentCabinetData != null) {
                         IconButton(
                             onClick = {
                                 haptics.click()
@@ -358,10 +379,24 @@ fun MainAppScreen(
                     } else if (scheduleData.isEmpty()) {
                         item {
                             EmptyScheduleState(
-                                message = "На выбранную неделю расписание занятий отсутствует.",
+                                title = "Нет занятий",
+                                message = "На выбранную неделю расписание отсутствует или занятия ещё не опубликованы.",
+                                icon = Icons.Outlined.FreeBreakfast,
+                                actionText = "К текущей неделе",
                                 onSelectGroupClick = {
-                                    haptics.mediumClick()
-                                    isBottomSheetOpen = true
+                                    haptics.click()
+                                    val currentWeek = weeks.find { it.name.contains("текущ", ignoreCase = true) }
+                                        ?: weeks.firstOrNull { it.id != MainViewModel.ALL_WEEKS_ID }
+                                    if (currentWeek != null) {
+                                        viewModel.onWeekSelected(currentWeek)
+                                    } else {
+                                        viewModel.fetchSchedule(isManualRefresh = true)
+                                    }
+                                },
+                                secondaryActionText = "Обновить",
+                                onSecondaryActionClick = {
+                                    haptics.click()
+                                    viewModel.fetchSchedule(isManualRefresh = true)
                                 }
                             )
                         }
@@ -463,14 +498,14 @@ fun MainAppScreen(
         }
 
         // Floating FAB (Schedule tab)
-        if (currentTab == 0 && userSelection.isComplete && scheduleData.isNotEmpty()) {
+        if (currentTab == 0 && userSelection.isComplete) {
             val fabDepth = BiolumeTheme.depth
             val fabShape = RoundedCornerShape(100.dp)
             val fabInteraction = remember { MutableInteractionSource() }
             ExtendedFloatingActionButton(
                 onClick = {
                     haptics.click()
-                    viewModel.fetchSchedule()
+                    viewModel.fetchSchedule(isManualRefresh = true)
                 },
                 interactionSource = fabInteraction,
                 icon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
@@ -482,7 +517,7 @@ fun MainAppScreen(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
-                    .padding(end = 24.dp, bottom = 96.dp)
+                    .padding(end = 24.dp, bottom = 92.dp)
                     .biolumeRaised(shape = fabShape, tokens = fabDepth)
                     .biolumePressable(
                         interactionSource = fabInteraction,
@@ -493,94 +528,14 @@ fun MainAppScreen(
             )
         }
 
-        // Floating Navigation Bar (hangs over content)
-        val depth = BiolumeTheme.depth
-        val navShape = RoundedCornerShape(28.dp)
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 12.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            NavigationBar(
-                modifier = Modifier
-                    .clip(navShape)
-                    .biolumeSurface(
-                        shape = navShape,
-                        tokens = depth,
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        outlineColor = MaterialTheme.colorScheme.outlineVariant
-                    ),
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 0.dp,
-                windowInsets = WindowInsets(0, 0, 0, 0)
-            ) {
-                NavigationBarItem(
-                    selected = currentTab == 0,
-                    onClick = {
-                        if (currentTab != 0) {
-                            haptics.tick()
-                            viewModel.selectTab(0)
-                        }
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = if (currentTab == 0) Icons.Filled.CalendarMonth else Icons.Outlined.CalendarMonth,
-                            contentDescription = "Расписание"
-                        )
-                    },
-                    label = { Text("Расписание", fontWeight = if (currentTab == 0) FontWeight.Bold else FontWeight.Normal) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        indicatorColor = depth.selectionFill
-                    )
-                )
-
-                NavigationBarItem(
-                    selected = currentTab == 1,
-                    onClick = {
-                        if (currentTab != 1) {
-                            haptics.tick()
-                            viewModel.selectTab(1)
-                        }
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = if (currentTab == 1) Icons.Filled.Person else Icons.Outlined.Person,
-                            contentDescription = "Личный кабинет"
-                        )
-                    },
-                    label = { Text("Кабинет", fontWeight = if (currentTab == 1) FontWeight.Bold else FontWeight.Normal) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        indicatorColor = depth.selectionFill
-                    )
-                )
-
-                NavigationBarItem(
-                    selected = currentTab == 2,
-                    onClick = {
-                        if (currentTab != 2) {
-                            haptics.tick()
-                            viewModel.selectTab(2)
-                        }
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = if (currentTab == 2) Icons.Filled.Settings else Icons.Outlined.Settings,
-                            contentDescription = "Настройки"
-                        )
-                    },
-                    label = { Text("Настройки", fontWeight = if (currentTab == 2) FontWeight.Bold else FontWeight.Normal) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        indicatorColor = depth.selectionFill
-                    )
-                )
-            }
-        }
+        // Floating Expressive Navigation Bar (Material 3 Expressive & Biolume)
+        ExpressiveFloatingNavBar(
+            currentTab = currentTab,
+            onTabSelected = { tab ->
+                viewModel.selectTab(tab)
+            },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 
         // Modal Selection Bottom Sheet

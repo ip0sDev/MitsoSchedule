@@ -417,10 +417,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         viewModelScope.launch {
             preferencesManager.saveSelection(_userSelection.value)
-            if (_allScheduleData.value.isNotEmpty()) {
+            val hasDataForWeek = if (week.id == ALL_WEEKS_ID) {
+                _allScheduleData.value.isNotEmpty()
+            } else {
+                _allScheduleData.value.any { it.weekId == week.id }
+            }
+
+            if (hasDataForWeek) {
                 filterAndApplyDisplayedSchedule()
             } else {
-                fetchSchedule(isManualRefresh = true)
+                try {
+                    _isLoading.value = true
+                    val fetched = webWorker.fetchScheduleForWeeks(_userSelection.value, listOf(week.id))
+                    if (fetched.isNotEmpty()) {
+                        val existing = _allScheduleData.value.filter { it.weekId != week.id }
+                        val merged = existing + fetched
+                        _allScheduleData.value = merged
+                        val timeFormat = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
+                        val formattedTime = timeFormat.format(Date())
+                        _lastUpdateTime.value = formattedTime
+                        preferencesManager.saveSchedule(merged, formattedTime, System.currentTimeMillis())
+                    }
+                    filterAndApplyDisplayedSchedule()
+                } finally {
+                    _isLoading.value = false
+                }
             }
         }
         _currentScreen.intValue = 0
@@ -477,29 +498,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _weeks.value = processed
                 }
 
-                // 2. Fetch ALL weeks schedule in one request!
+                // 2. Fetch ALL weeks schedule in parallel!
                 val result = webWorker.fetchScheduleForWeeks(current, emptyList())
 
                 if (result.isNotEmpty()) {
                     _allScheduleData.value = result
 
-                    // Auto-resolve week to current week if empty or invalid
+                    // Auto-resolve week to current week if empty, invalid, manual refresh, or if current week has no lessons
                     val activeSelection = _userSelection.value
                     if (activeSelection.weekId != ALL_WEEKS_ID) {
                         val activeWeeks = _weeks.value.filter { it.id != ALL_WEEKS_ID }
                         val weekExists = activeWeeks.any { it.id == activeSelection.weekId }
-                        if (!weekExists || activeSelection.weekId.isBlank() || activeSelection.weekId == "0") {
-                            val resolvedId = ScheduleTimeUtils.findCurrentWeekId(_weeks.value, result)
-                            if (resolvedId != null) {
-                                val resolvedName = _weeks.value.find { it.id == resolvedId }?.name
-                                    ?: result.firstOrNull { it.weekId == resolvedId }?.weekName ?: ""
-                                _userSelection.value = activeSelection.copy(weekId = resolvedId, weekName = resolvedName)
-                                preferencesManager.saveSelection(_userSelection.value)
-                            }
+                        val currentWeekId = ScheduleTimeUtils.findCurrentWeekId(_weeks.value, result)
+                        val currentWeekHasLessons = result.any { it.weekId == activeSelection.weekId }
+                        val shouldReset = isManualRefresh ||
+                                !weekExists ||
+                                activeSelection.weekId.isBlank() ||
+                                activeSelection.weekId == "0" ||
+                                (!currentWeekHasLessons && currentWeekId != null)
+
+                        val targetWeekId = if (shouldReset) {
+                            currentWeekId ?: activeWeeks.firstOrNull()?.id
                         } else {
-                            val matched = activeWeeks.find { it.id == activeSelection.weekId }
-                            if (matched != null && matched.name != activeSelection.weekName) {
-                                _userSelection.value = activeSelection.copy(weekName = matched.name)
+                            activeSelection.weekId
+                        }
+
+                        if (targetWeekId != null) {
+                            val matched = activeWeeks.find { it.id == targetWeekId }
+                            val resolvedName = matched?.name ?: result.firstOrNull { it.weekId == targetWeekId }?.weekName ?: ""
+                            if (targetWeekId != activeSelection.weekId || resolvedName != activeSelection.weekName) {
+                                _userSelection.value = activeSelection.copy(weekId = targetWeekId, weekName = resolvedName)
                                 preferencesManager.saveSelection(_userSelection.value)
                             }
                         }

@@ -420,10 +420,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         viewModelScope.launch {
             preferencesManager.saveSelection(_userSelection.value)
-            if (_allScheduleData.value.isNotEmpty()) {
+            val hasDataForWeek = if (week.id == ALL_WEEKS_ID) {
+                _allScheduleData.value.isNotEmpty()
+            } else {
+                _allScheduleData.value.any { it.weekId == week.id }
+            }
+
+            if (hasDataForWeek) {
                 filterAndApplyDisplayedSchedule()
             } else {
-                fetchSchedule(isManualRefresh = true)
+                try {
+                    _isLoading.value = true
+                    val fetched = webWorker.fetchSingleWeekSchedule(_userSelection.value, week.id, week.name)
+                    if (fetched.isNotEmpty()) {
+                        val existingOtherWeeks = _allScheduleData.value.filter { it.weekId != week.id }
+                        val merged = existingOtherWeeks + fetched
+                        _allScheduleData.value = merged
+                        val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
+                        val formattedTime = timeFormat.format(Date())
+                        _lastUpdateTime.value = formattedTime
+                        preferencesManager.saveSchedule(merged, formattedTime, System.currentTimeMillis())
+                    }
+                    filterAndApplyDisplayedSchedule()
+                } catch (e: Exception) {
+                    filterAndApplyDisplayedSchedule()
+                } finally {
+                    _isLoading.value = false
+                }
             }
         }
     }
@@ -467,13 +490,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val processed = processWeekList(result.weeks)
                     _weeks.value = processed
 
-                    // Re-map the saved week id (e.g. default "0") to a real server week id
-                    // so navigation/filtering work. "ALL" stays as is.
                     val current = _userSelection.value
                     if (current.weekId != ALL_WEEKS_ID) {
                         val knownIds = result.weeks.map { it.id }
-                        val targetWeekId = if (current.weekId.isBlank() || current.weekId == "0" || current.weekId !in knownIds) {
-                            PreferencesManager.findCurrentWeekId(result.weeks, result.daySchedules) ?: result.weeks.firstOrNull()?.id
+                        val currentWeekId = PreferencesManager.findCurrentWeekId(result.weeks, result.daySchedules)
+
+                        val currentWeekHasLessons = result.daySchedules.any { it.weekId == current.weekId }
+                        val shouldResetToCurrentWeek = isManualRefresh ||
+                                current.weekId.isBlank() ||
+                                current.weekId == "0" ||
+                                current.weekId !in knownIds ||
+                                (!currentWeekHasLessons && currentWeekId != null)
+
+                        val targetWeekId = if (shouldResetToCurrentWeek) {
+                            currentWeekId ?: result.weeks.firstOrNull { it.id != ALL_WEEKS_ID }?.id ?: result.weeks.firstOrNull()?.id
                         } else {
                             current.weekId
                         }
@@ -599,6 +629,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _allScheduleData.value = emptyList()
             _scheduleData.value = emptyList()
             _lastUpdateTime.value = null
+            // Reset to current week
+            val resetSelection = _userSelection.value.copy(weekId = "0", weekName = "Текущая неделя")
+            _userSelection.value = resetSelection
+            preferencesManager.saveSelection(resetSelection)
+            if (resetSelection.isComplete) {
+                fetchSchedule(isManualRefresh = true)
+            }
         }
     }
 

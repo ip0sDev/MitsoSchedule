@@ -3,6 +3,9 @@ package by.iposdev.watchso.data
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -183,7 +186,34 @@ class WebWorker(context: Context? = null) {
     suspend fun fetchScheduleForWeeks(selection: UserSelection, weekIds: List<String>): List<DaySchedule> {
         return withContext(Dispatchers.IO) {
             try {
-                fetchScheduleInternal(selection, weekId = "all")
+                val targetIds = if (weekIds.isNotEmpty()) {
+                    weekIds.filter { it.isNotBlank() && it != "ALL" }
+                } else {
+                    val weeks = fetchWeeks(
+                        selection.facultyId,
+                        selection.formId.ifBlank { "Dnevnaya" },
+                        selection.courseId,
+                        selection.groupId
+                    )
+                    weeks.map { it.id }.filter { it.isNotBlank() && it != "ALL" }
+                }
+
+                if (targetIds.isNotEmpty()) {
+                    coroutineScope {
+                        targetIds.map { wId ->
+                            async {
+                                val fetched = fetchScheduleInternal(selection, weekId = wId)
+                                fetched.map { day ->
+                                    day.copy(
+                                        weekId = if (day.weekId.isBlank() || day.weekId == "0") wId else day.weekId
+                                    )
+                                }
+                            }
+                        }.awaitAll().flatten()
+                    }
+                } else {
+                    fetchScheduleInternal(selection, weekId = selection.weekId.ifBlank { "1" })
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "fetchScheduleForWeeks failed: ${e.message}", e)
                 emptyList()

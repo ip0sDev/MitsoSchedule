@@ -181,13 +181,13 @@ class StudentWebWorker(
         val penaltyMatch = Regex("""Пеня[^\n\r:;]*:\s*([^\s;]+(?:\s*[рpР][уuУ][бbБ])?)""", RegexOption.IGNORE_CASE).find(fullText)
         val penalty = penaltyMatch?.groupValues?.get(1)?.trim() ?: "0.00"
 
-        val groupMatch = Regex("""Группа\s*:\s*([^\s<;]+)""", RegexOption.IGNORE_CASE).find(fullText)
+        val groupMatch = Regex("""(?:Группа|Group)\s*[:]?\s*([^\s<;]+)""", RegexOption.IGNORE_CASE).find(fullText)
         val moodleGroup = groupMatch?.groupValues?.get(1)?.trim() ?: ""
 
-        val loginMatch = Regex("""Логин\s*:\s*([^\s<;]+)""", RegexOption.IGNORE_CASE).find(fullText)
+        val loginMatch = Regex("""(?:Логин|Имя пользователя|Login)\s*[:]?\s*([^\s<;]+)""", RegexOption.IGNORE_CASE).find(fullText)
         val moodleLogin = loginMatch?.groupValues?.get(1)?.trim() ?: ""
 
-        val passMatch = Regex("""Пароль\s*:\s*([^\s<;]+)""", RegexOption.IGNORE_CASE).find(fullText)
+        val passMatch = Regex("""(?:Пароль|Password)\s*[:]?\s*([^\s<;]+)""", RegexOption.IGNORE_CASE).find(fullText)
         val moodlePassword = passMatch?.groupValues?.get(1)?.trim() ?: ""
 
         val isDebtVal = (mainDebt.replace(",", ".").replace(" ", "").toDoubleOrNull() ?: 0.0) > 0.0 ||

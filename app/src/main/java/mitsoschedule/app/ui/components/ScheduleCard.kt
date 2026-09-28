@@ -974,7 +974,12 @@ private fun getLessonTypeColors(type: String, isDark: Boolean): Pair<Color, Colo
 fun EmptyScheduleState(
     message: String,
     onSelectGroupClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    title: String = "Расписание не выбрано",
+    icon: ImageVector = Icons.Outlined.School,
+    actionText: String = "Выбрать группу",
+    secondaryActionText: String? = null,
+    onSecondaryActionClick: (() -> Unit)? = null
 ) {
     val depth = BiolumeTheme.depth
     Card(
@@ -1004,7 +1009,7 @@ fun EmptyScheduleState(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = Icons.Outlined.School,
+                        imageVector = icon,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.size(36.dp)
@@ -1015,7 +1020,7 @@ fun EmptyScheduleState(
             Spacer(modifier = Modifier.height(20.dp))
 
             Text(
-                text = "Расписание не выбрано",
+                text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
@@ -1032,14 +1037,28 @@ fun EmptyScheduleState(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            Button(
-                onClick = onSelectGroupClick,
-                shape = RoundedCornerShape(100.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Outlined.School, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Выбрать группу")
+                Button(
+                    onClick = onSelectGroupClick,
+                    shape = RoundedCornerShape(100.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(actionText)
+                }
+
+                if (secondaryActionText != null && onSecondaryActionClick != null) {
+                    FilledTonalButton(
+                        onClick = onSecondaryActionClick,
+                        shape = RoundedCornerShape(100.dp)
+                    ) {
+                        Text(secondaryActionText)
+                    }
+                }
             }
         }
     }

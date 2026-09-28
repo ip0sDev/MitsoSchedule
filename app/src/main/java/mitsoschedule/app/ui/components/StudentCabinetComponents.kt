@@ -626,46 +626,75 @@ fun StudentCabinetContent(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Moodle Group
-                if (data.moodleGroup.isNotBlank()) {
-                    MoodleCredentialRow(
-                        label = "Группа",
-                        value = data.moodleGroup,
-                        onCopy = { copyToClipboard(context, data.moodleGroup, "Группа скопирована", haptics) }
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
+                val hasMoodleCredentials = data.moodleGroup.isNotBlank() || data.moodleLogin.isNotBlank() || data.moodlePassword.isNotBlank()
 
-                // Moodle Login
-                if (data.moodleLogin.isNotBlank()) {
-                    MoodleCredentialRow(
-                        label = "Логин",
-                        value = data.moodleLogin,
-                        onCopy = { copyToClipboard(context, data.moodleLogin, "Логин скопирован", haptics) }
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
+                if (!hasMoodleCredentials) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Данные учетной записи Moodle не найдены в вашем кабинете.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    // Moodle Group
+                    if (data.moodleGroup.isNotBlank()) {
+                        MoodleCredentialRow(
+                            label = "Группа",
+                            value = data.moodleGroup,
+                            onCopy = { copyToClipboard(context, data.moodleGroup, "Группа скопирована", haptics) }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
 
-                // Moodle Password
-                if (data.moodlePassword.isNotBlank()) {
-                    var isPasswordHidden by remember { mutableStateOf(true) }
-                    MoodleCredentialRow(
-                        label = "Пароль",
-                        value = if (isPasswordHidden) "••••••••" else data.moodlePassword,
-                        trailingToggle = {
-                            IconButton(onClick = {
-                                haptics.toggle()
-                                isPasswordHidden = !isPasswordHidden
-                            }) {
-                                Icon(
-                                    imageVector = if (isPasswordHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        },
-                        onCopy = { copyToClipboard(context, data.moodlePassword, "Пароль скопирован", haptics) }
-                    )
+                    // Moodle Login
+                    if (data.moodleLogin.isNotBlank()) {
+                        MoodleCredentialRow(
+                            label = "Логин",
+                            value = data.moodleLogin,
+                            onCopy = { copyToClipboard(context, data.moodleLogin, "Логин скопирован", haptics) }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    // Moodle Password (visible by default as requested by user)
+                    if (data.moodlePassword.isNotBlank()) {
+                        var isPasswordHidden by remember { mutableStateOf(false) }
+                        MoodleCredentialRow(
+                            label = "Пароль",
+                            value = if (isPasswordHidden) "••••••••" else data.moodlePassword,
+                            trailingToggle = {
+                                IconButton(onClick = {
+                                    haptics.toggle()
+                                    isPasswordHidden = !isPasswordHidden
+                                }) {
+                                    Icon(
+                                        imageVector = if (isPasswordHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                                        contentDescription = if (isPasswordHidden) "Показать пароль" else "Скрыть пароль",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            },
+                            onCopy = { copyToClipboard(context, data.moodlePassword, "Пароль скопирован", haptics) }
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -718,7 +747,10 @@ private fun MoodleCredentialRow(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onCopy)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),

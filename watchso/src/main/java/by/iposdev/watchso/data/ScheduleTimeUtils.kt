@@ -148,7 +148,13 @@ object ScheduleTimeUtils {
             return thisWeekSchedule.weekId
         }
 
-        // 3. Try parsing week date ranges from week names (e.g. "21 сентября - 27 сентября")
+        // 3. Check for explicitly designated "Текущая неделя" in weeks list
+        val currentNamedWeek = weeks.find { it.id != "ALL" && it.name.contains("текущ", ignoreCase = true) }
+        if (currentNamedWeek != null) {
+            return currentNamedWeek.id
+        }
+
+        // 4. Try parsing week date ranges from week names (e.g. "21 сентября - 27 сентября")
         for (w in weeks) {
             if (w.id == "ALL") continue
             val range = parseWeekDateRange(w.name, today)
@@ -157,7 +163,7 @@ object ScheduleTimeUtils {
             }
         }
 
-        // 4. Find the week closest to today
+        // 5. Find the week closest to today
         var closestWeekId: String? = null
         var minDiffDays = Long.MAX_VALUE
         for (day in schedules) {
@@ -170,9 +176,9 @@ object ScheduleTimeUtils {
         }
         if (closestWeekId != null) return closestWeekId
 
-        // 5. Fallback: last week if today is past everything, or first week
+        // 6. Fallback: first real week, or last week
         val realWeeks = weeks.filter { it.id != "ALL" }
-        return realWeeks.lastOrNull()?.id ?: realWeeks.firstOrNull()?.id
+        return realWeeks.firstOrNull()?.id ?: realWeeks.lastOrNull()?.id
     }
 
     fun findTodaySchedule(schedules: List<DaySchedule>, today: LocalDate = LocalDate.now()): DaySchedule? {

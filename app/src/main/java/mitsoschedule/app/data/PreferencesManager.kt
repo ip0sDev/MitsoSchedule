@@ -120,6 +120,7 @@ class PreferencesManager(private val context: Context) {
             schedules: List<DaySchedule>,
             today: LocalDate = LocalDate.now()
         ): String? {
+            // 1. Try finding a DaySchedule that matches today
             val todaySchedule = schedules.find { day ->
                 val parsed = parseDateFromDaySchedule(day, today)
                 parsed != null && parsed.isEqual(today)
@@ -128,6 +129,7 @@ class PreferencesManager(private val context: Context) {
                 return todaySchedule.weekId
             }
 
+            // 2. Try finding a DaySchedule within current week (Monday..Sunday)
             val startOfWeek = today.with(DayOfWeek.MONDAY)
             val endOfWeek = today.with(DayOfWeek.SUNDAY)
             val thisWeekSchedule = schedules.find { day ->
@@ -138,6 +140,13 @@ class PreferencesManager(private val context: Context) {
                 return thisWeekSchedule.weekId
             }
 
+            // 3. Check for explicitly designated "Текущая неделя" in weeks list
+            val currentNamedWeek = weeks.find { it.id != "ALL" && it.name.contains("текущ", ignoreCase = true) }
+            if (currentNamedWeek != null) {
+                return currentNamedWeek.id
+            }
+
+            // 4. Try parsing week date ranges from week names (e.g. "21 сентября - 27 сентября")
             for (w in weeks) {
                 if (w.id == "ALL") continue
                 val range = parseWeekDateRange(w.name, today)
@@ -146,6 +155,7 @@ class PreferencesManager(private val context: Context) {
                 }
             }
 
+            // 5. Find closest week from schedules
             var closestWeekId: String? = null
             var minDiffDays = Long.MAX_VALUE
             for (day in schedules) {
@@ -159,7 +169,7 @@ class PreferencesManager(private val context: Context) {
             if (closestWeekId != null) return closestWeekId
 
             val realWeeks = weeks.filter { it.id != "ALL" }
-            return realWeeks.lastOrNull()?.id ?: realWeeks.firstOrNull()?.id
+            return realWeeks.firstOrNull()?.id ?: realWeeks.lastOrNull()?.id
         }
 
         fun shouldAutoRefresh(lastFetchMillis: Long): Boolean {

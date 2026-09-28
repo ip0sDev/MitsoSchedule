@@ -2,6 +2,9 @@ package mitsoschedule.app
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -116,12 +119,48 @@ class WebWorker(
                     selection.groupId
                 )
 
-                // 2. Fetch all weeks schedule in one request
-                val days = fetchScheduleInternal(selection, weekId = "all")
+                val realWeeks = weeks.filter { it.id.isNotBlank() && it.id != "ALL" }
+
+                // 2. Fetch all real weeks concurrently
+                val days = if (realWeeks.isNotEmpty()) {
+                    coroutineScope {
+                        realWeeks.map { week ->
+                            async {
+                                val fetched = fetchScheduleInternal(selection, weekId = week.id)
+                                fetched.map { day ->
+                                    day.copy(
+                                        weekId = if (day.weekId.isBlank() || day.weekId == "0") week.id else day.weekId,
+                                        weekName = if (day.weekName.isBlank()) week.name else day.weekName
+                                    )
+                                }
+                            }
+                        }.awaitAll().flatten()
+                    }
+                } else {
+                    fetchScheduleInternal(selection, weekId = selection.weekId.ifBlank { "1" })
+                }
+
                 ScheduleFetchResult(weeks = weeks, daySchedules = days)
             } catch (e: Exception) {
                 Log.e(TAG, "fetchScheduleAndAvailableWeeks failed: ${e.message}", e)
                 ScheduleFetchResult()
+            }
+        }
+    }
+
+    suspend fun fetchSingleWeekSchedule(selection: UserSelection, weekId: String, weekName: String = ""): List<DaySchedule> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val fetched = fetchScheduleInternal(selection, weekId = weekId.ifBlank { "1" })
+                fetched.map { day ->
+                    day.copy(
+                        weekId = if (day.weekId.isBlank() || day.weekId == "0") weekId else day.weekId,
+                        weekName = if (day.weekName.isBlank()) weekName else day.weekName
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "fetchSingleWeekSchedule failed: ${e.message}", e)
+                emptyList()
             }
         }
     }
