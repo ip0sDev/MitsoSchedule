@@ -1,5 +1,8 @@
 package by.iposdev.watchso.complication
 
+import mitsoschedule.core.schedule.TodayStatus
+import by.iposdev.watchso.R
+import mitsoschedule.core.schedule.ScheduleDates
 import android.app.PendingIntent
 import android.content.Intent
 import androidx.wear.watchface.complications.data.ComplicationData
@@ -9,8 +12,7 @@ import androidx.wear.watchface.complications.data.PlainComplicationText
 import androidx.wear.watchface.complications.data.ShortTextComplicationData
 import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import androidx.wear.watchface.complications.datasource.SuspendingComplicationDataSourceService
-import by.iposdev.watchso.data.ScheduleTimeUtils
-import by.iposdev.watchso.data.TodayScheduleState
+import mitsoschedule.core.schedule.TodayScheduleState
 import by.iposdev.watchso.data.WatchPreferencesManager
 import by.iposdev.watchso.presentation.MainActivity
 
@@ -55,65 +57,65 @@ class MainComplicationService : SuspendingComplicationDataSourceService() {
 
         val (shortText, shortTitle, longText, longTitle) = if (selection == null || !selection.isComplete) {
             Quadruple(
-                "Группа",
-                "МИТСО",
-                "Группа не выбрана",
-                "МИТСО Расписание"
+                applicationContext.getString(R.string.group),
+                applicationContext.getString(R.string.mitso),
+                applicationContext.getString(R.string.complication_group_not_selected),
+                applicationContext.getString(R.string.app_name)
             )
         } else {
-            val todaySched = ScheduleTimeUtils.findTodaySchedule(schedules)
+            val todaySched = ScheduleDates.findTodaySchedule(schedules)
             if (todaySched == null || todaySched.lessons.isEmpty()) {
                 Quadruple(
-                    "Пар нет",
-                    "МИТСО",
-                    "На сегодня занятий нет",
-                    "МИТСО • ${selection.groupName}"
+                    applicationContext.getString(R.string.complication_no_lessons),
+                    applicationContext.getString(R.string.mitso),
+                    applicationContext.getString(R.string.complication_no_lessons_text),
+                    applicationContext.getString(R.string.complication_group_line, selection.groupName)
                 )
             } else {
-                val timeInfo = ScheduleTimeUtils.calculateTodayTimeInfo(todaySched.lessons)
+                val timeInfo = TodayStatus.calculate(todaySched.lessons)
                 when (timeInfo.state) {
                     TodayScheduleState.ONGOING_LESSON -> {
                         val lesson = timeInfo.currentLesson
                         val roomOrTime = lesson?.room?.removePrefix("ауд.")?.removePrefix("каб.")?.trim()
                             ?: lesson?.time?.substringBefore("—")?.trim()
-                            ?: "Пара"
-                        val title = "Идёт"
-                        val lText = lesson?.subject ?: "Идёт занятие"
+                            ?: applicationContext.getString(R.string.lesson)
+                        val title = applicationContext.getString(R.string.complication_now)
+                        val lText = lesson?.subject ?: applicationContext.getString(R.string.complication_now_lesson)
                         val lTitle = "${lesson?.time ?: ""} • ${lesson?.room ?: ""}".trim(' ', '•')
                         Quadruple(roomOrTime, title, lText, lTitle)
                     }
                     TodayScheduleState.BREAK_BETWEEN_LESSONS -> {
                         val next = timeInfo.nextLesson
                         val roomOrTime = next?.room?.removePrefix("ауд.")?.removePrefix("каб.")?.trim()
-                            ?: "След."
-                        val title = if (timeInfo.minutesToNext > 0) "${timeInfo.minutesToNext}м" else "След."
-                        val lText = "След: ${next?.subject ?: "Пара"}"
+                            ?: applicationContext.getString(R.string.complication_next)
+                        val title = if (timeInfo.minutesToNext > 0) "${timeInfo.minutesToNext}м" else applicationContext.getString(R.string.complication_next)
+                        val lText = applicationContext.getString(R.string.complication_next_lesson, next?.subject ?: applicationContext.getString(R.string.lesson))
                         val nextStart = next?.time?.substringBefore("—")?.trim() ?: ""
-                        val lTitle = "Перерыв • в $nextStart (${next?.room ?: ""})".trim()
+                        val lTitle = applicationContext.getString(R.string.complication_break_at, nextStart, next?.room ?: "").trim()
                         Quadruple(roomOrTime, title, lText, lTitle)
                     }
                     TodayScheduleState.NOT_STARTED -> {
                         val first = timeInfo.nextLesson
-                        val startTime = first?.time?.substringBefore("—")?.trim() ?: "Пара"
-                        val title = "1-я"
-                        val lText = first?.subject ?: "Занятия"
-                        val lTitle = "1-я в $startTime • ${first?.room ?: ""}".trim(' ', '•')
+                        val startTime = first?.time?.substringBefore("—")?.trim() ?: applicationContext.getString(R.string.lesson)
+                        val title = applicationContext.getString(R.string.complication_first)
+                        val lText = first?.subject ?: applicationContext.getString(R.string.lessons)
+                        val lTitle = applicationContext.getString(R.string.complication_first_at, startTime, first?.room ?: "").trim(' ', '•')
                         Quadruple(startTime, title, lText, lTitle)
                     }
                     TodayScheduleState.FINISHED -> {
                         Quadruple(
-                            "Всё!",
-                            "МИТСО",
-                            "Пары на сегодня завершены",
-                            "МИТСО • Отдых"
+                            applicationContext.getString(R.string.complication_done),
+                            applicationContext.getString(R.string.mitso),
+                            applicationContext.getString(R.string.complication_done_text),
+                            applicationContext.getString(R.string.complication_rest)
                         )
                     }
                     TodayScheduleState.NO_LESSONS -> {
                         Quadruple(
-                            "Пар нет",
-                            "МИТСО",
-                            "Сегодня нет пар",
-                            "МИТСО • ${selection.groupName}"
+                            applicationContext.getString(R.string.complication_no_lessons),
+                            applicationContext.getString(R.string.mitso),
+                            applicationContext.getString(R.string.complication_no_lessons_today),
+                            applicationContext.getString(R.string.complication_group_line, selection.groupName)
                         )
                     }
                 }

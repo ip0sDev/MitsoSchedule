@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Left Pillar (Cyan) -->
+    <path
+        android:pathData="M35,30 v48"
+        android:strokeColor="#FF35C7E8"
+        android:strokeWidth="8"
+        android:strokeLineCap="round" />
+
+    <!-- Right Pillar (Purple) -->
+    <path
+        android:pathData="M73,30 v48"
+        android:strokeColor="#FF8C6BFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round" />
+
+    <!-- Center Chevron Connecting Stems -->
+    <path
+        android:pathData="M35,36 L54,57 L73,36"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="35"
+                android:startY="46"
+                android:endX="73"
+                android:endY="46"
+                android:type="linear">
+                <item android:color="#FF35C7E8" android:offset="0.0" />
+                <item android:color="#FF6FC6FF" android:offset="0.5" />
+                <item android:color="#FF8C6BFF" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Schedule Slot Notches in Left Pillar (Lessons 1-4) -->
+    <path
+        android:pathData="M32.5,42 h5 M32.5,52 h5 M32.5,62 h5 M32.5,72 h5"
+        android:strokeColor="#FF0E1214"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+
+    <!-- Schedule Slot Notches in Right Pillar (Lessons 1-4) -->
+    <path
+        android:pathData="M70.5,42 h5 M70.5,52 h5 M70.5,62 h5 M70.5,72 h5"
+        android:strokeColor="#FF0E1214"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+
+    <!-- Active Lesson Node at Center -->
+    <path
+        android:pathData="M54,68 A3.2,3.2 0 1 0 54,68.01 Z"
+        android:fillColor="#FF35C7E8" />
+    <path
+        android:pathData="M54,68 A1.5,1.5 0 1 0 54,68.01 Z"
+        android:fillColor="#FFFFFFFF" />
+</vector>

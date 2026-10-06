@@ -1,5 +1,7 @@
 package by.iposdev.watchso.presentation.components
 
+import androidx.compose.ui.res.stringResource
+import by.iposdev.watchso.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,7 +49,7 @@ import androidx.wear.compose.material3.CircularProgressIndicator
 import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
-import by.iposdev.watchso.data.StudentCabinetData
+import mitsoschedule.core.model.StudentCabinetData
 import by.iposdev.watchso.presentation.theme.WearBalanceGreenBg
 import by.iposdev.watchso.presentation.theme.WearBalanceGreenText
 import by.iposdev.watchso.presentation.theme.WearBalanceRedBg
@@ -94,14 +96,14 @@ fun WearStudentLoginCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Личный кабинет",
+                text = stringResource(R.string.cabinet_title),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
 
             Text(
-                text = "Вход по номеру лицевого счета",
+                text = stringResource(R.string.login_subtitle),
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -138,7 +140,7 @@ fun WearStudentLoginCard(
 
             // Quick demo buttons or preset selector
             Text(
-                text = "Для входа используйте мобильное приложение или введите номер счета:",
+                text = stringResource(R.string.login_hint),
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -166,7 +168,7 @@ fun WearStudentLoginCard(
                     )
                 } else {
                     Text(
-                        text = "Войти (student.mitso.by)",
+                        text = stringResource(R.string.sign_in_site),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimary
@@ -232,7 +234,7 @@ fun WearStudentCabinetContent(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = if (data.moodleGroup.isNotBlank()) "Группа ${data.moodleGroup}" else "Студент МИТСО",
+                        text = if (data.moodleGroup.isNotBlank()) stringResource(R.string.group_with_name, data.moodleGroup) else stringResource(R.string.student_default_name),
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -266,7 +268,7 @@ fun WearStudentCabinetContent(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Лицевой счет",
+                            text = stringResource(R.string.account),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -294,7 +296,7 @@ fun WearStudentCabinetContent(
                 ) {
                     Column {
                         Text(
-                            text = "Баланс",
+                            text = stringResource(R.string.balance),
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                             color = if (isNegative) WearBalanceRedText else WearBalanceGreenText
                         )
@@ -314,12 +316,12 @@ fun WearStudentCabinetContent(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Долг: ${data.mainDebt}",
+                        text = stringResource(R.string.debt_with, data.mainDebt),
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "Пеня: ${data.penalty}",
+                        text = stringResource(R.string.penalty_with, data.penalty),
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -359,7 +361,7 @@ fun WearStudentCabinetContent(
 
                 if (data.moodleLogin.isNotBlank()) {
                     Text(
-                        text = "Логин: ${data.moodleLogin}",
+                        text = stringResource(R.string.login_with, data.moodleLogin),
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -368,7 +370,7 @@ fun WearStudentCabinetContent(
 
                 if (data.moodlePassword.isNotBlank()) {
                     Text(
-                        text = "Пароль: ${data.moodlePassword}",
+                        text = stringResource(R.string.password_with, data.moodlePassword),
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -380,7 +382,7 @@ fun WearStudentCabinetContent(
         // 4. Action buttons
         Chip(
             onClick = onRefreshClick,
-            label = { Text("Обновить данные", fontSize = 11.sp) },
+            label = { Text(stringResource(R.string.refresh_data), fontSize = 11.sp) },
             icon = { Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(ChipDefaults.IconSize)) },
             colors = ChipDefaults.primaryChipColors(),
             modifier = Modifier.fillMaxWidth()
@@ -388,7 +390,7 @@ fun WearStudentCabinetContent(
 
         Chip(
             onClick = onLogoutClick,
-            label = { Text("Выйти", fontSize = 11.sp) },
+            label = { Text(stringResource(R.string.logout), fontSize = 11.sp) },
             icon = { Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = null, modifier = Modifier.size(ChipDefaults.IconSize)) },
             colors = ChipDefaults.secondaryChipColors(),
             modifier = Modifier.fillMaxWidth()

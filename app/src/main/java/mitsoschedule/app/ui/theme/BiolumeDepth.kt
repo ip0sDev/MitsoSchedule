@@ -1,5 +1,7 @@
 package mitsoschedule.app.ui.theme
 
+import androidx.compose.material3.ColorScheme
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
@@ -90,6 +92,20 @@ val TidepoolDepthTokens = BiolumeDepthTokens(
     glowTertiary = TidepoolGlowTertiary,
     glowRadius = 10.dp,
     selectionFill = TidepoolSelectionFill,
+)
+
+/**
+ * Сигнальный слой (§4.2) под динамическую палитру: glow берёт оттенки из схемы, но сохраняет
+ * альфу и радиус Biolume, а заливка выбора остаётся плотной и непрозрачной (§10).
+ * Структурный слой (тени рельефа) нейтральный и от палитры не зависит.
+ */
+fun BiolumeDepthTokens.recoloredFor(scheme: ColorScheme): BiolumeDepthTokens = copy(
+    glowPrimary = scheme.primary.copy(alpha = glowPrimary.alpha),
+    glowSecondary = scheme.secondary.copy(alpha = glowSecondary.alpha),
+    glowTertiary = scheme.tertiary.copy(alpha = glowTertiary.alpha),
+    selectionFill = scheme.primary
+        .copy(alpha = if (isDark) 0.30f else 0.20f)
+        .compositeOver(scheme.surfaceContainerHigh),
 )
 
 /**

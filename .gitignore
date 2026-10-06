@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+# Собранные релизы и скриншоты
+/app/release/
+/watchso/release/
+/watch_screen.png
+/.kotlin/sessions/

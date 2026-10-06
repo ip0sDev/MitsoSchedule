@@ -13,8 +13,8 @@ android {
         applicationId = "by.iposdev.watchso"
         minSdk = 34
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.13"
+        versionCode = 4
+        versionName = "1.14"
 
     }
 
@@ -35,6 +35,11 @@ android {
     }
     // Удален старый блок kotlinOptions
     // useLibrary("wear-sdk") // Removed this line
+    testOptions {
+        // android.util.Log (его используют и библиотеки) не должен падать в юнит-тестах
+        unitTests.isReturnDefaultValues = true
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -79,11 +84,8 @@ dependencies {
     implementation(libs.androidx.compose.material) // ИЗМЕНЕНО: используем псевдоним 'androidx-compose-material' из toml, который ссылается на androidx.wear.compose:compose-material
     implementation(libs.androidx.compose.foundation) // ИЗМЕНЕНО: используем псевдоним 'androidx-compose-foundation' из toml, который ссылается на androidx.wear.compose:compose-foundation
 
-    // Network & Parsing
-    // implementation(libs.okhttp) // ВРЕМЕННО ЗАКОММЕНТИРОВАНО
-    implementation(libs.okhttp.v4120) // ДОБАВЛЕНА ПРЯМАЯ ЗАВИСИМОСТЬ
-    implementation(libs.okhttp.urlconnection.v4120) // ДОБАВЛЕНА ЗАВИСИМОСТЬ ДЛЯ JavaNetCookieJar
-    implementation(libs.jsoup)
+    // Общий модуль: модели, сетевой слой (OkHttp), нормализация расписания
+    implementation(project(":core"))
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
@@ -100,6 +102,7 @@ dependencies {
     // ----- КОНЕЦ НОВЫХ ЗАВИСИМОСТЕЙ -----
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)

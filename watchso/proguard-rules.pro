@@ -9,15 +9,12 @@
     companion object;
 }
 -keep class kotlinx.serialization.** { *; }
--keep class by.iposdev.watchso.data.** { *; }
+# Модели расписания лежат в :core, их правила приходят из core/consumer-rules.pro
 
 # OkHttp & Okio
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -keep class okhttp3.** { *; }
-
-# Jsoup
--keep class org.jsoup.** { *; }
 
 # Coroutines
 -keepclassmembers class kotlinx.coroutines.** { *; }

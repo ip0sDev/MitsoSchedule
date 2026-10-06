@@ -1,5 +1,8 @@
 package by.iposdev.watchso.tile
 
+import mitsoschedule.core.schedule.TodayStatus
+import by.iposdev.watchso.R
+import mitsoschedule.core.schedule.ScheduleDates
 import android.content.Context
 import androidx.concurrent.futures.CallbackToFutureAdapter
 import androidx.wear.protolayout.ActionBuilders
@@ -18,13 +21,13 @@ import androidx.wear.protolayout.material.layouts.PrimaryLayout
 import androidx.wear.tiles.RequestBuilders
 import androidx.wear.tiles.TileBuilders
 import androidx.wear.tiles.TileService
-import by.iposdev.watchso.data.DaySchedule
-import by.iposdev.watchso.data.ScheduleTimeUtils
-import by.iposdev.watchso.data.TodayScheduleState
-import by.iposdev.watchso.data.TodayTimeInfo
-import by.iposdev.watchso.data.UserSelection
+import mitsoschedule.core.model.DaySchedule
+import mitsoschedule.core.schedule.TodayScheduleState
+import mitsoschedule.core.schedule.TodayTimeInfo
+import mitsoschedule.core.model.UserSelection
 import by.iposdev.watchso.data.WatchPreferencesManager
-import by.iposdev.watchso.data.WebWorker
+import by.iposdev.watchso.data.createWatchWebWorker
+import mitsoschedule.core.network.orEmpty
 import by.iposdev.watchso.presentation.MainActivity
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
@@ -75,11 +78,11 @@ class ScheduleTileService : TileService() {
         val schedules = prefs.getCachedSchedule()
         val deviceParams = requestParams.deviceConfiguration
 
-        if (selection != null && selection.isComplete && WatchPreferencesManager.isScheduleOlderThanWeek(prefs.getLastFetchMillis(), schedules)) {
+        if (selection != null && selection.isComplete && ScheduleDates.isScheduleOlderThanWeek(prefs.getLastFetchMillis(), schedules)) {
             serviceScope.launch {
                 try {
-                    val webWorker = WebWorker(applicationContext)
-                    val fresh = webWorker.fetchScheduleForWeeks(selection, emptyList())
+                    val webWorker = createWatchWebWorker()
+                    val fresh = webWorker.fetchScheduleForWeeks(selection, emptyList()).orEmpty()
                     if (fresh.isNotEmpty()) {
                         val updateTime = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
                         prefs.saveSchedule(fresh, updateTime)
@@ -106,8 +109,8 @@ class ScheduleTileService : TileService() {
         val layoutElement = if (selection == null || !selection.isComplete) {
             buildNoSelectionLayout(deviceParams, tileClickable)
         } else {
-            val todaySched = ScheduleTimeUtils.findTodaySchedule(schedules)
-            val timeInfo = todaySched?.let { ScheduleTimeUtils.calculateTodayTimeInfo(it.lessons) }
+            val todaySched = ScheduleDates.findTodaySchedule(schedules)
+            val timeInfo = todaySched?.let { TodayStatus.calculate(it.lessons) }
             buildScheduleLayout(selection, todaySched, timeInfo, deviceParams, tileClickable)
         }
 
@@ -127,14 +130,14 @@ class ScheduleTileService : TileService() {
         val content = LayoutElementBuilders.Column.Builder()
             .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
             .addContent(
-                Text.Builder(applicationContext, "МИТСО")
+                Text.Builder(applicationContext, applicationContext.getString(R.string.mitso))
                     .setTypography(Typography.TYPOGRAPHY_TITLE2)
                     .setColor(ColorBuilders.argb(COLOR_CYAN))
                     .build()
             )
             .addContent(LayoutElementBuilders.Spacer.Builder().setHeight(DimensionBuilders.dp(6f)).build())
             .addContent(
-                Text.Builder(applicationContext, "Выберите группу\nв приложении")
+                Text.Builder(applicationContext, applicationContext.getString(R.string.tile_choose_group))
                     .setTypography(Typography.TYPOGRAPHY_BODY2)
                     .setColor(ColorBuilders.argb(COLOR_TEXT_SECONDARY))
                     .setMultilineAlignment(LayoutElementBuilders.TEXT_ALIGN_CENTER)
@@ -154,7 +157,7 @@ class ScheduleTileService : TileService() {
         val primaryLayout = PrimaryLayout.Builder(deviceParams)
             .setContent(content)
             .setPrimaryChipContent(
-                CompactChip.Builder(applicationContext, "Открыть", clickable, deviceParams)
+                CompactChip.Builder(applicationContext, applicationContext.getString(R.string.open), clickable, deviceParams)
                     .setChipColors(chipColors)
                     .build()
             )
@@ -175,7 +178,7 @@ class ScheduleTileService : TileService() {
         deviceParams: DeviceParametersBuilders.DeviceParameters,
         clickable: ModifiersBuilders.Clickable
     ): LayoutElementBuilders.LayoutElement {
-        val headerTitle = selection.groupName.ifBlank { "МИТСО" }
+        val headerTitle = selection.groupName.ifBlank { applicationContext.getString(R.string.mitso) }
 
         val column = LayoutElementBuilders.Column.Builder()
             .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
@@ -192,14 +195,14 @@ class ScheduleTileService : TileService() {
 
         if (todaySched == null || todaySched.lessons.isEmpty() || timeInfo == null || timeInfo.state == TodayScheduleState.NO_LESSONS) {
             column.addContent(
-                Text.Builder(applicationContext, "Пар сегодня нет")
+                Text.Builder(applicationContext, applicationContext.getString(R.string.no_lessons_today))
                     .setTypography(Typography.TYPOGRAPHY_TITLE3)
                     .setColor(ColorBuilders.argb(COLOR_TEXT_PRIMARY))
                     .build()
             )
             column.addContent(LayoutElementBuilders.Spacer.Builder().setHeight(DimensionBuilders.dp(4f)).build())
             column.addContent(
-                Text.Builder(applicationContext, "Отличного отдыха!")
+                Text.Builder(applicationContext, applicationContext.getString(R.string.enjoy_rest))
                     .setTypography(Typography.TYPOGRAPHY_BODY2)
                     .setColor(ColorBuilders.argb(COLOR_TEXT_SECONDARY))
                     .build()
@@ -210,13 +213,13 @@ class ScheduleTileService : TileService() {
                     val lesson = timeInfo.currentLesson
                     // Status Pill
                     column.addContent(
-                        buildStatusPill(applicationContext, "● ИДЁТ СЕЙЧАС", COLOR_CYAN, COLOR_PILL_CYAN)
+                        buildStatusPill(applicationContext, applicationContext.getString(R.string.tile_now), COLOR_CYAN, COLOR_PILL_CYAN)
                     )
                     column.addContent(LayoutElementBuilders.Spacer.Builder().setHeight(DimensionBuilders.dp(4f)).build())
 
                     // Lesson Subject
                     column.addContent(
-                        Text.Builder(applicationContext, lesson?.subject ?: "Пара")
+                        Text.Builder(applicationContext, lesson?.subject ?: applicationContext.getString(R.string.lesson))
                             .setTypography(Typography.TYPOGRAPHY_TITLE3)
                             .setColor(ColorBuilders.argb(COLOR_TEXT_PRIMARY))
                             .setMaxLines(2)
@@ -240,14 +243,14 @@ class ScheduleTileService : TileService() {
                 TodayScheduleState.BREAK_BETWEEN_LESSONS -> {
                     val next = timeInfo.nextLesson
                     val minutesLeft = timeInfo.minutesToNext
-                    val pillText = if (minutesLeft > 0) "ПЕРЕРЫВ (след. ${minutesLeft}м)" else "ПЕРЕРЫВ"
+                    val pillText = if (minutesLeft > 0) applicationContext.getString(R.string.tile_break_next, minutesLeft) else applicationContext.getString(R.string.tile_break)
                     column.addContent(
                         buildStatusPill(applicationContext, pillText, 0xFFFFC24E.toInt(), 0x33FFC24E.toInt())
                     )
                     column.addContent(LayoutElementBuilders.Spacer.Builder().setHeight(DimensionBuilders.dp(4f)).build())
 
                     column.addContent(
-                        Text.Builder(applicationContext, next?.subject ?: "Следующая пара")
+                        Text.Builder(applicationContext, next?.subject ?: applicationContext.getString(R.string.next_lesson))
                             .setTypography(Typography.TYPOGRAPHY_TITLE3)
                             .setColor(ColorBuilders.argb(COLOR_TEXT_PRIMARY))
                             .setMaxLines(2)
@@ -258,7 +261,7 @@ class ScheduleTileService : TileService() {
 
                     val roomText = next?.room ?: ""
                     val startText = next?.time?.substringBefore("—")?.trim() ?: ""
-                    val subInfo = if (roomText.isNotBlank()) "В $startText • $roomText" else "В $startText"
+                    val subInfo = if (roomText.isNotBlank()) applicationContext.getString(R.string.tile_at_room, startText, roomText) else applicationContext.getString(R.string.tile_at, startText)
                     column.addContent(
                         Text.Builder(applicationContext, subInfo)
                             .setTypography(Typography.TYPOGRAPHY_CAPTION1)
@@ -271,12 +274,12 @@ class ScheduleTileService : TileService() {
                     val first = timeInfo.nextLesson
                     val startTime = first?.time?.substringBefore("—")?.trim() ?: ""
                     column.addContent(
-                        buildStatusPill(applicationContext, "1-Я ПАРА В $startTime", COLOR_CYAN, COLOR_PILL_CYAN)
+                        buildStatusPill(applicationContext, applicationContext.getString(R.string.tile_first_at, startTime), COLOR_CYAN, COLOR_PILL_CYAN)
                     )
                     column.addContent(LayoutElementBuilders.Spacer.Builder().setHeight(DimensionBuilders.dp(4f)).build())
 
                     column.addContent(
-                        Text.Builder(applicationContext, first?.subject ?: "Занятие")
+                        Text.Builder(applicationContext, first?.subject ?: applicationContext.getString(R.string.lesson_generic))
                             .setTypography(Typography.TYPOGRAPHY_TITLE3)
                             .setColor(ColorBuilders.argb(COLOR_TEXT_PRIMARY))
                             .setMaxLines(2)
@@ -298,18 +301,18 @@ class ScheduleTileService : TileService() {
 
                 TodayScheduleState.FINISHED -> {
                     column.addContent(
-                        buildStatusPill(applicationContext, "ВСЁ НА СЕГОДНЯ", COLOR_TEXT_SECONDARY, COLOR_BG_CARD)
+                        buildStatusPill(applicationContext, applicationContext.getString(R.string.tile_all_done), COLOR_TEXT_SECONDARY, COLOR_BG_CARD)
                     )
                     column.addContent(LayoutElementBuilders.Spacer.Builder().setHeight(DimensionBuilders.dp(6f)).build())
                     column.addContent(
-                        Text.Builder(applicationContext, "Пары закончились")
+                        Text.Builder(applicationContext, applicationContext.getString(R.string.lessons_finished))
                             .setTypography(Typography.TYPOGRAPHY_TITLE3)
                             .setColor(ColorBuilders.argb(COLOR_TEXT_PRIMARY))
                             .build()
                     )
                     column.addContent(LayoutElementBuilders.Spacer.Builder().setHeight(DimensionBuilders.dp(4f)).build())
                     column.addContent(
-                        Text.Builder(applicationContext, "Отличного отдыха!")
+                        Text.Builder(applicationContext, applicationContext.getString(R.string.enjoy_rest))
                             .setTypography(Typography.TYPOGRAPHY_BODY2)
                             .setColor(ColorBuilders.argb(COLOR_TEXT_SECONDARY))
                             .build()
@@ -332,7 +335,7 @@ class ScheduleTileService : TileService() {
         val primaryLayout = PrimaryLayout.Builder(deviceParams)
             .setContent(column.build())
             .setPrimaryChipContent(
-                CompactChip.Builder(applicationContext, "Расписание", clickable, deviceParams)
+                CompactChip.Builder(applicationContext, applicationContext.getString(R.string.schedule), clickable, deviceParams)
                     .setChipColors(chipColors)
                     .build()
             )

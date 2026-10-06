@@ -33,5 +33,6 @@ dependencyResolutionManagement {
 // Блок toolchainManagement удален, так как плагин Foojay должен его заменить
 
 rootProject.name = "MitsoTest"
+include(":core")
 include(":app")
 include(":watchso")

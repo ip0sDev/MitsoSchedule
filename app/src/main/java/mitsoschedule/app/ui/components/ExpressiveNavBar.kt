@@ -1,5 +1,9 @@
 package mitsoschedule.app.ui.components
 
+import mitsoschedule.app.ui.theme.biolumeRaised
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
+import mitsoschedule.app.R
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -52,38 +56,38 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mitsoschedule.app.ui.haptics.LocalBiolumeHaptics
 import mitsoschedule.app.ui.theme.BiolumeTheme
+import mitsoschedule.app.AppTab
 import mitsoschedule.app.ui.theme.MitsoTestTheme
-import mitsoschedule.app.ui.theme.biolumeSurface
 
 data class ExpressiveNavItemData(
-    val index: Int,
-    val label: String,
+    val tab: AppTab,
+    @StringRes val labelRes: Int,
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector,
-    val contentDescription: String
+    @StringRes val contentDescriptionRes: Int
 )
 
 val DefaultExpressiveNavItems = listOf(
     ExpressiveNavItemData(
-        index = 0,
-        label = "Расписание",
+        tab = AppTab.SCHEDULE,
+        labelRes = R.string.nav_schedule,
         selectedIcon = Icons.Filled.CalendarMonth,
         unselectedIcon = Icons.Outlined.CalendarMonth,
-        contentDescription = "Расписание занятий"
+        contentDescriptionRes = R.string.nav_schedule_description
     ),
     ExpressiveNavItemData(
-        index = 1,
-        label = "Кабинет",
+        tab = AppTab.CABINET,
+        labelRes = R.string.nav_cabinet,
         selectedIcon = Icons.Filled.Person,
         unselectedIcon = Icons.Outlined.Person,
-        contentDescription = "Личный кабинет студента"
+        contentDescriptionRes = R.string.nav_cabinet_description
     ),
     ExpressiveNavItemData(
-        index = 2,
-        label = "Настройки",
+        tab = AppTab.SETTINGS,
+        labelRes = R.string.settings_title,
         selectedIcon = Icons.Filled.Settings,
         unselectedIcon = Icons.Outlined.Settings,
-        contentDescription = "Настройки приложения"
+        contentDescriptionRes = R.string.nav_settings_description
     )
 )
 
@@ -101,8 +105,8 @@ val DefaultExpressiveNavItems = listOf(
  */
 @Composable
 fun ExpressiveFloatingNavBar(
-    currentTab: Int,
-    onTabSelected: (Int) -> Unit,
+    currentTab: AppTab,
+    onTabSelected: (AppTab) -> Unit,
     modifier: Modifier = Modifier,
     items: List<ExpressiveNavItemData> = DefaultExpressiveNavItems
 ) {
@@ -118,12 +122,10 @@ fun ExpressiveFloatingNavBar(
     ) {
         Surface(
             modifier = Modifier
-                .biolumeSurface(
-                    shape = CircleShape,
-                    tokens = depth,
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    outlineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                ),
+                // Только рельеф и заливка, без контура: у плавающей панели грань читалась как случайная рамка
+                .biolumeRaised(shape = CircleShape, tokens = depth)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             shape = CircleShape,
             color = Color.Transparent,
             tonalElevation = 0.dp
@@ -141,14 +143,14 @@ fun ExpressiveFloatingNavBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 items.forEach { item ->
-                    val isSelected = currentTab == item.index
+                    val isSelected = currentTab == item.tab
                     ExpressivePillItem(
                         item = item,
                         isSelected = isSelected,
                         onClick = {
-                            if (currentTab != item.index) {
+                            if (currentTab != item.tab) {
                                 haptics.snap()
-                                onTabSelected(item.index)
+                                onTabSelected(item.tab)
                             }
                         }
                     )
@@ -217,7 +219,7 @@ private fun ExpressivePillItem(
         ) {
             Icon(
                 imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
-                contentDescription = item.contentDescription,
+                contentDescription = stringResource(item.contentDescriptionRes),
                 tint = contentColor,
                 modifier = Modifier
                     .size(21.dp)
@@ -249,7 +251,7 @@ private fun ExpressivePillItem(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = item.label,
+                        text = stringResource(item.labelRes),
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontSize = 13.sp,
                             letterSpacing = 0.2.sp
@@ -275,7 +277,7 @@ fun ExpressiveNavBarPreview() {
                 .padding(vertical = 24.dp)
         ) {
             ExpressiveFloatingNavBar(
-                currentTab = 0,
+                currentTab = AppTab.SCHEDULE,
                 onTabSelected = {}
             )
         }
@@ -293,7 +295,7 @@ fun ExpressiveNavBarDarkPreview() {
                 .padding(vertical = 24.dp)
         ) {
             ExpressiveFloatingNavBar(
-                currentTab = 1,
+                currentTab = AppTab.CABINET,
                 onTabSelected = {}
             )
         }

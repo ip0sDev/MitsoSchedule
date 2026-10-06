@@ -1,5 +1,20 @@
 package mitsoschedule.app
 
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import androidx.compose.ui.res.stringResource
+import mitsoschedule.app.R
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -59,7 +74,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -69,11 +83,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import mitsoschedule.app.data.DaySchedule
-import mitsoschedule.app.data.Lesson
-import mitsoschedule.app.data.OptionItem
-import mitsoschedule.app.data.StudentCabinetData
-import mitsoschedule.app.data.UserSelection
+import mitsoschedule.core.model.DaySchedule
+import mitsoschedule.core.model.Lesson
+import mitsoschedule.core.model.OptionItem
+import mitsoschedule.core.model.StudentCabinetData
+import mitsoschedule.core.model.UserSelection
 import mitsoschedule.app.ui.components.AppFooter
 import mitsoschedule.app.ui.components.DayScheduleSection
 import mitsoschedule.app.ui.components.DayTimelineCategory
@@ -100,19 +114,20 @@ import mitsoschedule.app.ui.theme.biolumeRaised
 import mitsoschedule.app.ui.theme.biolumeSurface
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: MainViewModel by viewModels()
+    private val viewModel: MainViewModel by viewModels { AppContainer(applicationContext).viewModelFactory }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             val themeMode by viewModel.themeMode
+            val useDynamicColor by viewModel.useDynamicColor
             val isDark = when (themeMode) {
                 "dark" -> true
                 "light" -> false
                 else -> isSystemInDarkTheme()
             }
-            MitsoTestTheme(darkTheme = isDark) {
+            MitsoTestTheme(darkTheme = isDark, dynamicColor = useDynamicColor) {
                 MainAppScreen(viewModel = viewModel)
             }
         }
@@ -152,9 +167,53 @@ fun MainAppScreen(
     val serverHealth by viewModel.serverHealth
     val isCheckingHealth by viewModel.isCheckingHealth
     val themeMode by viewModel.themeMode
+    val useDynamicColor by viewModel.useDynamicColor
 
     var isBottomSheetOpen by remember { mutableStateOf(false) }
     var isPastDaysExpanded by remember { mutableStateOf(false) }
+
+    // Состояние списка поднято на уровень экрана: позиция сохраняется при смене вкладок
+    val scheduleListState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    val pastDays = remember(scheduleData) {
+        scheduleData.filter { classifyDaySchedule(it) == DayTimelineCategory.PAST }
+    }
+    val todayDays = remember(scheduleData) {
+        scheduleData.filter { classifyDaySchedule(it) == DayTimelineCategory.TODAY }
+    }
+    val futureDays = remember(scheduleData) {
+        scheduleData.filter { classifyDaySchedule(it) == DayTimelineCategory.FUTURE }
+    }
+
+    // Позиция сегодняшнего дня в списке: шапка, [аккордеон прошлых дней, [сами дни]], сегодня, ...
+    val todayIndex: Int? =
+        if (userSelection.isComplete && todayDays.isNotEmpty()) {
+            1 + if (pastDays.isNotEmpty()) 1 + (if (isPastDaysExpanded) pastDays.size else 0) else 0
+        } else {
+            null
+        }
+    val isTodayVisible by remember(todayIndex) {
+        derivedStateOf {
+            todayIndex == null || scheduleListState.layoutInfo.visibleItemsInfo.any { it.index == todayIndex }
+        }
+    }
+    val isTodayAbove by remember(todayIndex) {
+        derivedStateOf { todayIndex != null && todayIndex < scheduleListState.firstVisibleItemIndex }
+    }
+    // У самого верха списка «↓ Сегодня» закрывал бы шапку группы, поэтому там чип не показываем
+    val showTodayChip by remember(todayIndex) {
+        derivedStateOf {
+            todayIndex != null && !isTodayVisible && (isTodayAbove || scheduleListState.firstVisibleItemIndex > 0)
+        }
+    }
+
+    // Если сегодняшний день целиком вне экрана (например, после раскрытия прошлых дней), подводим к нему
+    LaunchedEffect(userSelection.weekId, todayDays.isNotEmpty()) {
+        val target = todayIndex ?: return@LaunchedEffect
+        snapshotFlow { scheduleListState.layoutInfo.visibleItemsInfo.isNotEmpty() }.first { it }
+        if (!isTodayVisible) scheduleListState.animateScrollToItem(target)
+    }
 
     // Haptic feedback triggers on data completion & error
     var hadLoadingStarted by remember { mutableStateOf(false) }
@@ -208,9 +267,9 @@ fun MainAppScreen(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 val topIcon = when (currentTab) {
-                                    0 -> Icons.Outlined.School
-                                    1 -> Icons.Outlined.Person
-                                    else -> Icons.Outlined.Settings
+                                    AppTab.SCHEDULE -> Icons.Outlined.School
+                                    AppTab.CABINET -> Icons.Outlined.Person
+                                    AppTab.SETTINGS -> Icons.Outlined.Settings
                                 }
                                 Icon(
                                     imageVector = topIcon,
@@ -222,9 +281,9 @@ fun MainAppScreen(
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         val titleText = when (currentTab) {
-                            0 -> "МИТСО Расписание"
-                            1 -> "Личный кабинет"
-                            else -> "Настройки"
+                            AppTab.SCHEDULE -> stringResource(R.string.app_name)
+                            AppTab.CABINET -> stringResource(R.string.cabinet_title)
+                            AppTab.SETTINGS -> stringResource(R.string.settings_title)
                         }
                         Text(
                             text = titleText,
@@ -234,7 +293,7 @@ fun MainAppScreen(
                     }
                 },
                 actions = {
-                    if (currentTab == 0 && userSelection.isComplete) {
+                    if (currentTab == AppTab.SCHEDULE && userSelection.isComplete) {
                         IconButton(
                             onClick = {
                                 haptics.click()
@@ -251,12 +310,12 @@ fun MainAppScreen(
                             } else {
                                 Icon(
                                     imageVector = Icons.Outlined.Refresh,
-                                    contentDescription = "Обновить расписание",
+                                    contentDescription = stringResource(R.string.refresh_schedule),
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
-                    } else if (currentTab == 1 && studentCabinetData != null) {
+                    } else if (currentTab == AppTab.CABINET && studentCabinetData != null) {
                         IconButton(
                             onClick = {
                                 haptics.click()
@@ -266,11 +325,11 @@ fun MainAppScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Refresh,
-                                contentDescription = "Обновить кабинет",
+                                contentDescription = stringResource(R.string.refresh_cabinet),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
-                    } else if (currentTab == 2) {
+                    } else if (currentTab == AppTab.SETTINGS) {
                         IconButton(
                             onClick = {
                                 haptics.click()
@@ -280,7 +339,7 @@ fun MainAppScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Refresh,
-                                contentDescription = "Проверить статус",
+                                contentDescription = stringResource(R.string.check_status),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -298,175 +357,200 @@ fun MainAppScreen(
                 .padding(top = innerPadding.calculateTopPadding())
         ) {
             // Track previous tab for directional transitions
-            var previousTab by remember { mutableIntStateOf(currentTab) }
             AnimatedContent(
                 targetState = currentTab,
                 transitionSpec = {
-                    val direction = if (targetState > initialState) 1 else -1
+                    val direction = if (targetState.ordinal > initialState.ordinal) 1 else -1
                     val enter = slideInHorizontally { fullWidth -> direction * fullWidth / 4 } + fadeIn()
                     val exit = slideOutHorizontally { fullWidth -> -direction * fullWidth / 4 } + fadeOut()
                     (enter togetherWith exit).using(SizeTransform(clip = false))
                 },
                 modifier = Modifier.fillMaxSize()
-            ) { tabIndex ->
-            if (tabIndex == 0) {
+            ) { tab ->
+            if (tab == AppTab.SCHEDULE) {
                 // SCHEDULE TAB
-                val pastDays = remember(scheduleData) {
-                    scheduleData.filter { classifyDaySchedule(it) == DayTimelineCategory.PAST }
-                }
-                val todayDays = remember(scheduleData) {
-                    scheduleData.filter { classifyDaySchedule(it) == DayTimelineCategory.TODAY }
-                }
-                val futureDays = remember(scheduleData) {
-                    scheduleData.filter { classifyDaySchedule(it) == DayTimelineCategory.FUTURE }
-                }
-
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 110.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    item {
-                        GroupHeaderCard(
-                            currentSelection = userSelection,
-                            weeksList = weeks,
-                            onOpenSelectionClick = {
-                                haptics.mediumClick()
-                                isBottomSheetOpen = true
-                            },
-                            onWeekSelected = {
-                                haptics.tick()
-                                viewModel.onWeekSelected(it)
-                            },
-                            canGoPrevious = viewModel.canGoPreviousWeek,
-                            canGoNext = viewModel.canGoNextWeek,
-                            onPreviousWeekClick = {
-                                haptics.tick()
-                                viewModel.selectPreviousWeek()
-                            },
-                            onNextWeekClick = {
-                                haptics.tick()
-                                viewModel.selectNextWeek()
-                            }
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                    }
-
-                    if (isLoading && scheduleData.isEmpty()) {
-                        item {
-                            LoadingScheduleState()
+                PullToRefreshBox(
+                    isRefreshing = isLoading && scheduleData.isNotEmpty(),
+                    onRefresh = {
+                        if (userSelection.isComplete) {
+                            haptics.click()
+                            viewModel.fetchSchedule(isManualRefresh = true)
                         }
-                    } else if (!userSelection.isComplete) {
+                    },
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    LazyColumn(
+                        state = scheduleListState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 110.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         item {
-                            EmptyScheduleState(
-                                message = "Выберите ваш факультет, курс и группу, чтобы просмотреть актуальное расписание.",
-                                onSelectGroupClick = {
+                            GroupHeaderCard(
+                                currentSelection = userSelection,
+                                weeksList = weeks,
+                                onOpenSelectionClick = {
                                     haptics.mediumClick()
                                     isBottomSheetOpen = true
-                                }
-                            )
-                        }
-                    } else if (!errorMessage.isNullOrBlank() && scheduleData.isEmpty()) {
-                        item {
-                            ErrorScheduleState(
-                                errorMessage = errorMessage ?: "Произошла ошибка при загрузке расписания",
-                                onRetryClick = {
-                                    haptics.click()
-                                    viewModel.fetchSchedule()
-                                }
-                            )
-                        }
-                    } else if (scheduleData.isEmpty()) {
-                        item {
-                            EmptyScheduleState(
-                                title = "Нет занятий",
-                                message = "На выбранную неделю расписание отсутствует или занятия ещё не опубликованы.",
-                                icon = Icons.Outlined.FreeBreakfast,
-                                actionText = "К текущей неделе",
-                                onSelectGroupClick = {
-                                    haptics.click()
-                                    val currentWeek = weeks.find { it.name.contains("текущ", ignoreCase = true) }
-                                        ?: weeks.firstOrNull { it.id != MainViewModel.ALL_WEEKS_ID }
-                                    if (currentWeek != null) {
-                                        viewModel.onWeekSelected(currentWeek)
-                                    } else {
-                                        viewModel.fetchSchedule(isManualRefresh = true)
-                                    }
                                 },
-                                secondaryActionText = "Обновить",
-                                onSecondaryActionClick = {
-                                    haptics.click()
-                                    viewModel.fetchSchedule(isManualRefresh = true)
+                                onWeekSelected = {
+                                    haptics.tick()
+                                    viewModel.onWeekSelected(it)
+                                },
+                                canGoPrevious = viewModel.canGoPreviousWeek,
+                                canGoNext = viewModel.canGoNextWeek,
+                                onPreviousWeekClick = {
+                                    haptics.tick()
+                                    viewModel.selectPreviousWeek()
+                                },
+                                onNextWeekClick = {
+                                    haptics.tick()
+                                    viewModel.selectNextWeek()
                                 }
                             )
+                            Spacer(modifier = Modifier.height(6.dp))
                         }
-                    } else {
-                        if (pastDays.isNotEmpty()) {
+
+                        if (isLoading && scheduleData.isEmpty()) {
                             item {
-                                PastDaysAccordionCard(
-                                    pastDaysCount = pastDays.size,
-                                    isExpanded = isPastDaysExpanded,
-                                    onToggleExpand = {
-                                        haptics.click()
-                                        isPastDaysExpanded = !isPastDaysExpanded
+                                LoadingScheduleState()
+                            }
+                        } else if (!userSelection.isComplete) {
+                            item {
+                                EmptyScheduleState(
+                                    message = stringResource(R.string.empty_schedule_message),
+                                    onSelectGroupClick = {
+                                        haptics.mediumClick()
+                                        isBottomSheetOpen = true
                                     }
                                 )
                             }
-
-                            if (isPastDaysExpanded) {
-                                items(pastDays) { daySchedule ->
-                                    DayScheduleSection(daySchedule = daySchedule, isToday = false)
+                        } else if (!errorMessage.isNullOrBlank() && scheduleData.isEmpty()) {
+                            item {
+                                ErrorScheduleState(
+                                    errorMessage = errorMessage ?: stringResource(R.string.schedule_error_default),
+                                    onRetryClick = {
+                                        haptics.click()
+                                        viewModel.fetchSchedule()
+                                    }
+                                )
+                            }
+                        } else if (scheduleData.isEmpty()) {
+                            item {
+                                EmptyScheduleState(
+                                    title = stringResource(R.string.no_lessons_title),
+                                    message = stringResource(R.string.no_lessons_message),
+                                    icon = Icons.Outlined.FreeBreakfast,
+                                    actionText = stringResource(R.string.go_to_current_week),
+                                    onSelectGroupClick = {
+                                        haptics.click()
+                                        val currentWeek = weeks.find { it.name.contains("текущ", ignoreCase = true) }
+                                            ?: weeks.firstOrNull { it.id != MainViewModel.ALL_WEEKS_ID }
+                                        if (currentWeek != null) {
+                                            viewModel.onWeekSelected(currentWeek)
+                                        } else {
+                                            viewModel.fetchSchedule(isManualRefresh = true)
+                                        }
+                                    },
+                                    secondaryActionText = stringResource(R.string.refresh),
+                                    onSecondaryActionClick = {
+                                        haptics.click()
+                                        viewModel.fetchSchedule(isManualRefresh = true)
+                                    }
+                                )
+                            }
+                        } else {
+                            if (pastDays.isNotEmpty()) {
+                                item {
+                                    PastDaysAccordionCard(
+                                        pastDaysCount = pastDays.size,
+                                        isExpanded = isPastDaysExpanded,
+                                        onToggleExpand = {
+                                            haptics.click()
+                                            isPastDaysExpanded = !isPastDaysExpanded
+                                        }
+                                    )
                                 }
+
+                                if (isPastDaysExpanded) {
+                                    items(pastDays) { daySchedule ->
+                                        DayScheduleSection(
+                                            daySchedule = daySchedule,
+                                            isToday = false,
+                                            showDivider = daySchedule !== pastDays.first()
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (todayDays.isNotEmpty()) {
+                                items(todayDays) { daySchedule ->
+                                        DayScheduleSection(
+                                        daySchedule = daySchedule,
+                                        isToday = true,
+                                        showDivider = isPastDaysExpanded && pastDays.isNotEmpty()
+                                    )
+                                    }
+                            }
+
+                            items(futureDays) { daySchedule ->
+                                DayScheduleSection(
+                                    daySchedule = daySchedule,
+                                    isToday = false,
+                                    showDivider = todayDays.isNotEmpty() || daySchedule !== futureDays.first() ||
+                                        (isPastDaysExpanded && pastDays.isNotEmpty())
+                                )
                             }
                         }
 
-                        if (todayDays.isNotEmpty()) {
-                            items(todayDays) { daySchedule ->
-                                    DayScheduleSection(daySchedule = daySchedule, isToday = true)
-                                }
+                        item {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            AppFooter(lastUpdateTime = lastUpdateTime)
                         }
-
-                        items(futureDays) { daySchedule ->
-                            DayScheduleSection(daySchedule = daySchedule, isToday = false)
-                        }
-                    }
-
-                    item {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        AppFooter(lastUpdateTime = lastUpdateTime)
                     }
                 }
-            } else if (tabIndex == 1) {
+            } else if (tab == AppTab.CABINET) {
                 // STUDENT CABINET TAB
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 110.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                PullToRefreshBox(
+                    isRefreshing = isStudentLoading && studentCabinetData != null,
+                    onRefresh = {
+                        if (studentCabinetData != null) {
+                            haptics.click()
+                            viewModel.refreshStudentCabinet()
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    if (studentCabinetData != null) {
-                        item {
-                            StudentCabinetContent(
-                                data = studentCabinetData!!,
-                                isLoading = isStudentLoading,
-                                onRefreshClick = { viewModel.refreshStudentCabinet() },
-                                onLogoutClick = { viewModel.logoutStudent() }
-                            )
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 110.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (studentCabinetData != null) {
+                            item {
+                                StudentCabinetContent(
+                                    data = studentCabinetData!!,
+                                    isLoading = isStudentLoading,
+                                    onRefreshClick = { viewModel.refreshStudentCabinet() },
+                                    onLogoutClick = { viewModel.logoutStudent() }
+                                )
+                            }
+                        } else {
+                            item {
+                                StudentLoginCard(
+                                    isLoading = isStudentLoading,
+                                    errorMessage = studentErrorMessage,
+                                    onLoginClick = { login, pass, rememberMe ->
+                                        viewModel.loginStudent(login, pass, rememberMe)
+                                    }
+                                )
+                            }
                         }
-                    } else {
-                        item {
-                            StudentLoginCard(
-                                isLoading = isStudentLoading,
-                                errorMessage = studentErrorMessage,
-                                onLoginClick = { login, pass, rememberMe ->
-                                    viewModel.loginStudent(login, pass, rememberMe)
-                                }
-                            )
-                        }
-                    }
 
-                    item {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        AppFooter(lastUpdateTime = studentCabinetData?.lastFetchedTime)
+                        item {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            AppFooter(lastUpdateTime = studentCabinetData?.lastFetchedTime)
+                        }
                     }
                 }
             } else {
@@ -485,7 +569,9 @@ fun MainAppScreen(
                             onClearCache = { viewModel.clearScheduleCache() },
                             onResetSelection = { viewModel.resetSelection() },
                             currentTheme = themeMode,
-                            onThemeSelected = { viewModel.setThemeMode(it) }
+                            onThemeSelected = { viewModel.setThemeMode(it) },
+                            useDynamicColor = useDynamicColor,
+                            onDynamicColorChange = { viewModel.setDynamicColor(it) }
                         )
                     }
 
@@ -496,9 +582,41 @@ fun MainAppScreen(
                 }
             }
         }
+            AnimatedVisibility(
+                visible = currentTab == AppTab.SCHEDULE && showTodayChip,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp),
+                enter = fadeIn() + slideInVertically { -it },
+                exit = fadeOut() + slideOutVertically { -it }
+            ) {
+                AssistChip(
+                    onClick = {
+                        haptics.tick()
+                        todayIndex?.let { scope.launch { scheduleListState.animateScrollToItem(it) } }
+                    },
+                    label = { Text(stringResource(R.string.jump_to_today)) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = if (isTodayAbove) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    colors = AssistChipDefaults.assistChipColors(
+                        // непрозрачный фон: под чипом проходит прокручиваемый список
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                            .compositeOver(MaterialTheme.colorScheme.background),
+                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        leadingIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    elevation = AssistChipDefaults.assistChipElevation(elevation = 4.dp),
+                    border = null
+                )
+            }
 
         // Floating FAB (Schedule tab)
-        if (currentTab == 0 && userSelection.isComplete) {
+        if (currentTab == AppTab.SCHEDULE && userSelection.isComplete) {
             val fabDepth = BiolumeTheme.depth
             val fabShape = RoundedCornerShape(100.dp)
             val fabInteraction = remember { MutableInteractionSource() }
@@ -509,7 +627,7 @@ fun MainAppScreen(
                 },
                 interactionSource = fabInteraction,
                 icon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
-                text = { Text("Обновить") },
+                text = { Text(stringResource(R.string.refresh)) },
                 shape = fabShape,
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,

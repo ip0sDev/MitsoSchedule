@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Left Pillar -->
+    <path
+        android:pathData="M35,30 v48"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round" />
+
+    <!-- Right Pillar -->
+    <path
+        android:pathData="M73,30 v48"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round" />
+
+    <!-- Center Chevron -->
+    <path
+        android:pathData="M35,36 L54,57 L73,36"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Schedule Slot Notches -->
+    <path
+        android:pathData="M32.5,42 h5 M32.5,52 h5 M32.5,62 h5 M32.5,72 h5"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M70.5,42 h5 M70.5,52 h5 M70.5,62 h5 M70.5,72 h5"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+
+    <!-- Active Lesson Node -->
+    <path
+        android:pathData="M54,68 A3.2,3.2 0 1 0 54,68.01 Z"
+        android:fillColor="#FFFFFFFF" />
+</vector>

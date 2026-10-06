@@ -1,42 +1,50 @@
 package mitsoschedule.app
 
-import android.app.Application
 import androidx.compose.runtime.State
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import mitsoschedule.app.data.DaySchedule
-import mitsoschedule.app.data.OptionItem
-import mitsoschedule.app.data.PreferencesManager
-import mitsoschedule.app.data.ServerHealth
-import mitsoschedule.app.data.StudentAuthCredentials
-import mitsoschedule.app.data.StudentCabinetData
-import mitsoschedule.app.data.StudentWebWorker
-import mitsoschedule.app.data.UserSelection
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import mitsoschedule.app.data.AppSettings
+import mitsoschedule.app.data.PreferencesManager
+import mitsoschedule.core.model.DaySchedule
+import mitsoschedule.core.model.OptionItem
+import mitsoschedule.core.model.ServerHealth
+import mitsoschedule.core.model.StudentCabinetData
+import mitsoschedule.core.model.UserSelection
+import mitsoschedule.core.network.ApiError
+import mitsoschedule.core.network.ApiResult
+import mitsoschedule.core.network.StudentSession
+import mitsoschedule.core.network.orEmpty
+import mitsoschedule.core.schedule.ScheduleDates
+import mitsoschedule.core.schedule.ScheduleNormalizer
+import mitsoschedule.core.schedule.ScheduleRepository
+import mitsoschedule.core.schedule.Weeks
+import mitsoschedule.core.storage.ScheduleStore
+import mitsoschedule.core.ui.UiStrings
+import mitsoschedule.core.ui.reason
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+class MainViewModel(
+    private val scheduleRepository: ScheduleRepository,
+    private val studentSession: StudentSession,
+    private val store: ScheduleStore,
+    private val settings: AppSettings,
+    private val strings: UiStrings,
+    private val onScheduleUpdated: () -> Unit = {}
+) : ViewModel() {
 
     companion object {
-        const val ALL_WEEKS_ID = "ALL"
-        val ALL_WEEKS_OPTION = OptionItem(id = ALL_WEEKS_ID, name = "Все доступные недели")
+        const val ALL_WEEKS_ID = Weeks.ALL_ID
+        val ALL_WEEKS_OPTION = Weeks.ALL_OPTION
     }
 
-    private val webWorker = WebWorker()
-    private val studentWebWorker = StudentWebWorker()
-    private val preferencesManager = PreferencesManager(application.applicationContext)
+    // Navigation state
+    private val _currentTab = mutableStateOf(AppTab.SCHEDULE)
+    val currentTab: State<AppTab> = _currentTab
 
-    // Navigation state: 0 -> Schedule, 1 -> Cabinet
-    private val _currentTab = mutableIntStateOf(0)
-    val currentTab: State<Int> = _currentTab
-
-    fun selectTab(tabIndex: Int) {
-        _currentTab.intValue = tabIndex
+    fun selectTab(tab: AppTab) {
+        _currentTab.value = tab
     }
 
     // Schedule UI States
@@ -96,14 +104,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _themeMode = mutableStateOf("system")
     val themeMode: State<String> = _themeMode
 
-    fun setThemeMode(mode: String) {
-        _themeMode.value = mode
+    private val _useDynamicColor = mutableStateOf(false)
+    val useDynamicColor: State<Boolean> = _useDynamicColor
+
+    fun setDynamicColor(enabled: Boolean) {
+        _useDynamicColor.value = enabled
         viewModelScope.launch {
-            preferencesManager.setThemeMode(mode)
+            settings.setDynamicColor(enabled)
         }
     }
 
-    private var savedCredentials: StudentAuthCredentials? = null
+    private val _allScheduleData = mutableStateOf<List<DaySchedule>>(emptyList())
+
+    fun setThemeMode(mode: String) {
+        _themeMode.value = mode
+        viewModelScope.launch {
+            settings.setThemeMode(mode)
+        }
+    }
 
     init {
         loadInitialData()
@@ -113,20 +131,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadInitialData() {
         viewModelScope.launch {
             // 0. Load server URL and theme from preferences
-            val savedServerUrl = preferencesManager.serverUrlFlow.firstOrNull() ?: PreferencesManager.DEFAULT_SERVER_URL
+            val savedServerUrl = settings.serverUrlFlow.firstOrNull() ?: PreferencesManager.DEFAULT_SERVER_URL
             _serverUrl.value = savedServerUrl
-            webWorker.updateBaseUrl(savedServerUrl)
-            studentWebWorker.updateBaseUrl(savedServerUrl)
+            scheduleRepository.setServerUrl(savedServerUrl)
+            studentSession.setServerUrl(savedServerUrl)
             checkServerHealth()
 
-            val savedTheme = preferencesManager.themeModeFlow.firstOrNull() ?: "system"
-            _themeMode.value = savedTheme
+            _themeMode.value = settings.themeModeFlow.firstOrNull() ?: "system"
+            _useDynamicColor.value = settings.dynamicColorFlow.firstOrNull() ?: false
 
             // 1. Read local preferences immediately
-            val saved = preferencesManager.savedSelectionFlow.firstOrNull()
-            val savedTime = preferencesManager.lastUpdateFlow.firstOrNull()
-            val cachedSchedule = preferencesManager.cachedScheduleFlow.firstOrNull()
-            val lastFetchMillis = preferencesManager.lastFetchMillisFlow.firstOrNull() ?: 0L
+            val saved = store.savedSelectionFlow.firstOrNull()
+            val savedTime = store.lastUpdateFlow.firstOrNull()
+            val cachedSchedule = store.cachedScheduleFlow.firstOrNull()
+            val lastFetchMillis = store.lastFetchMillisFlow.firstOrNull() ?: 0L
 
             if (savedTime != null) {
                 _lastUpdateTime.value = savedTime
@@ -141,25 +159,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _allScheduleData.value = cachedSchedule
 
                 // Populate weeks list from cached schedule immediately so week navigation works offline
-                val cachedWeeks = cachedSchedule
-                    .map { OptionItem(it.weekId, it.weekName) }
-                    .filter { it.id.isNotBlank() }
-                    .distinctBy { it.id }
+                val cachedWeeks = Weeks.fromSchedule(cachedSchedule)
                 if (cachedWeeks.isNotEmpty()) {
-                    _weeks.value = processWeekList(cachedWeeks)
+                    _weeks.value = Weeks.withAllOption(cachedWeeks)
                 }
 
                 // If saved week is invalid or default "0" or blank, resolve to current week
                 if (saved != null) {
-                    val knownWeekIds = cachedSchedule.map { it.weekId }.filter { it.isNotBlank() }.distinct()
-                    val savedWeekId = saved.weekId
-                    if (savedWeekId != ALL_WEEKS_ID && (savedWeekId.isBlank() || savedWeekId == "0" || savedWeekId !in knownWeekIds)) {
-                        val currentWeekId = PreferencesManager.findCurrentWeekId(_weeks.value, cachedSchedule)
-                        if (currentWeekId != null) {
-                            val currentWeekName = _weeks.value.find { it.id == currentWeekId }?.name
-                                ?: cachedSchedule.firstOrNull { it.weekId == currentWeekId }?.weekName ?: saved.weekName
-                            _userSelection.value = saved.copy(weekId = currentWeekId, weekName = currentWeekName)
-                        }
+                    Weeks.resolveStored(saved, _weeks.value, cachedSchedule, requireKnown = true)?.let {
+                        _userSelection.value = it
                     }
                 }
 
@@ -174,15 +182,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             if (saved != null && saved.isComplete) {
                 launch {
-                    try {
-                        loadDependentOptionsForSelection(saved)
-                    } catch (e: Exception) {
-                        // ignore network error for offline cache
-                    }
+                    // офлайн-кэш важнее: ошибку загрузки вариантов выбора не показываем
+                    loadDependentOptionsForSelection(saved)
                 }
 
-                val isStale = PreferencesManager.isScheduleOlderThanWeek(lastFetchMillis, cachedSchedule ?: emptyList())
-                val shouldRefresh = PreferencesManager.shouldAutoRefresh(lastFetchMillis)
+                val isStale = ScheduleDates.isScheduleOlderThanWeek(lastFetchMillis, cachedSchedule ?: emptyList())
+                val shouldRefresh = ScheduleDates.shouldAutoRefresh(lastFetchMillis)
                 if (isStale || shouldRefresh || cachedSchedule.isNullOrEmpty()) {
                     fetchSchedule(isManualRefresh = isStale)
                 }
@@ -196,11 +201,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_isLoading.value) return
 
         viewModelScope.launch {
-            val lastFetch = preferencesManager.getLastFetchMillis()
+            val lastFetch = store.getLastFetchMillis()
             val cached = _allScheduleData.value.ifEmpty {
-                preferencesManager.cachedScheduleFlow.firstOrNull() ?: emptyList()
+                store.cachedScheduleFlow.firstOrNull() ?: emptyList()
             }
-            if (force || PreferencesManager.isScheduleOlderThanWeek(lastFetch, cached)) {
+            if (force || ScheduleDates.isScheduleOlderThanWeek(lastFetch, cached)) {
                 fetchSchedule(isManualRefresh = true)
             }
         }
@@ -208,16 +213,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadInitialStudentData() {
         viewModelScope.launch {
+            studentSession.migrateLegacySecrets()
+
             // Load cached cabinet data if any
-            val cachedData = preferencesManager.cachedStudentCabinetFlow.firstOrNull()
-            if (cachedData != null) {
-                _studentCabinetData.value = cachedData
-            }
+            studentSession.cachedData()?.let { _studentCabinetData.value = it }
 
             // Load credentials and auto-refresh
-            val credentials = preferencesManager.studentCredentialsFlow.firstOrNull()
-            if (credentials != null && credentials.rememberMe && credentials.login.isNotBlank()) {
-                savedCredentials = credentials
+            if (studentSession.restore(requireRemember = true) != null) {
                 refreshStudentCabinet()
             }
         }
@@ -228,83 +230,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadFaculties() {
         viewModelScope.launch {
             _isLoadingOptions.value = true
-            try {
-                val (_, facultyList) = webWorker.getCSRFTokenAndFaculties()
-                _faculties.value = facultyList
-            } catch (e: Exception) {
-                _errorMessage.value = "Не удалось загрузить факультеты: ${e.message}"
-            } finally {
-                _isLoadingOptions.value = false
+            when (val result = scheduleRepository.faculties()) {
+                is ApiResult.Success -> _faculties.value = result.value
+                is ApiResult.Failure ->
+                    _errorMessage.value = strings.get(R.string.error_load_faculties, strings.reason(result.error))
             }
+            _isLoadingOptions.value = false
         }
     }
 
     private suspend fun loadDependentOptionsForSelection(selection: UserSelection) {
         if (selection.facultyId.isBlank()) return
-        val eduForms = webWorker.fetchEducationForms(selection.facultyId)
-        _forms.value = eduForms
-        val formId = selection.formId.ifBlank { eduForms.firstOrNull()?.id ?: "Dnevnaya" }
-
-        val courseList = webWorker.fetchCourses(selection.facultyId, formId)
-        _courses.value = courseList
-
-        if (selection.courseId.isNotBlank()) {
-            val groupList = webWorker.fetchGroups(selection.facultyId, formId, selection.courseId)
-            _groups.value = groupList
-
-            if (selection.groupId.isNotBlank()) {
-                val weekList = webWorker.fetchWeeks(selection.facultyId, formId, selection.courseId, selection.groupId)
-                _weeks.value = processWeekList(weekList)
-            }
-        }
+        val options = scheduleRepository.loadOptions(selection)
+        _forms.value = options.forms
+        _courses.value = options.courses
+        if (selection.courseId.isNotBlank()) _groups.value = options.groups
+        if (selection.groupId.isNotBlank()) _weeks.value = options.weeks
     }
-
-    private val _allScheduleData = mutableStateOf<List<DaySchedule>>(emptyList())
-
-    private fun processWeekList(weekList: List<OptionItem>): List<OptionItem> {
-        if (weekList.size >= 2) {
-            val hasAll = weekList.any { it.id == ALL_WEEKS_ID }
-            if (!hasAll) {
-                return listOf(ALL_WEEKS_OPTION) + weekList
-            }
-        }
-        return weekList
-    }
-
-    /** Real weeks excluding the virtual "ALL" option — used for arrows navigation */
-    private val realWeeks: List<OptionItem>
-        get() = _weeks.value.filter { it.id != ALL_WEEKS_ID }
 
     val canGoPreviousWeek: Boolean
-        get() {
-            val list = realWeeks
-            if (list.size <= 1) return false
-            val currentIndex = list.indexOfFirst { it.id == _userSelection.value.weekId }
-            return currentIndex > 0
-        }
+        get() = Weeks.hasPrevious(_weeks.value, _userSelection.value.weekId)
 
     val canGoNextWeek: Boolean
-        get() {
-            val list = realWeeks
-            if (list.size <= 1) return false
-            val currentIndex = list.indexOfFirst { it.id == _userSelection.value.weekId }
-            return currentIndex >= 0 && currentIndex < list.size - 1
-        }
+        get() = Weeks.hasNext(_weeks.value, _userSelection.value.weekId)
 
     fun selectNextWeek() {
-        val list = realWeeks
-        val currentIndex = list.indexOfFirst { it.id == _userSelection.value.weekId }
-        if (currentIndex >= 0 && currentIndex < list.size - 1) {
-            onWeekSelected(list[currentIndex + 1])
-        }
+        Weeks.next(_weeks.value, _userSelection.value.weekId)?.let(::onWeekSelected)
     }
 
     fun selectPreviousWeek() {
-        val list = realWeeks
-        val currentIndex = list.indexOfFirst { it.id == _userSelection.value.weekId }
-        if (currentIndex > 0) {
-            onWeekSelected(list[currentIndex - 1])
-        }
+        Weeks.previous(_weeks.value, _userSelection.value.weekId)?.let(::onWeekSelected)
     }
 
     fun onFacultySelected(faculty: OptionItem) {
@@ -322,17 +277,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _groups.value = emptyList()
             _weeks.value = emptyList()
 
-            try {
-                val eduForms = webWorker.fetchEducationForms(faculty.id)
-                _forms.value = eduForms
-                val formId = _userSelection.value.formId.ifBlank { eduForms.firstOrNull()?.id ?: "Dnevnaya" }
-                val courseList = webWorker.fetchCourses(faculty.id, formId)
-                _courses.value = courseList
-            } catch (e: Exception) {
-                _errorMessage.value = "Ошибка при загрузке курсов"
-            } finally {
-                _isLoadingOptions.value = false
-            }
+            val eduForms = scheduleRepository.forms(faculty.id)
+            _forms.value = eduForms.orEmpty()
+            val formId = _userSelection.value.formId.ifBlank { eduForms.orEmpty().firstOrNull()?.id ?: "Dnevnaya" }
+            val courseList = scheduleRepository.courses(faculty.id, formId)
+            _courses.value = courseList.orEmpty()
+            reportCoursesError(eduForms.errorOrNull ?: courseList.errorOrNull)
+            _isLoadingOptions.value = false
         }
     }
 
@@ -351,14 +302,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _groups.value = emptyList()
             _weeks.value = emptyList()
 
-            try {
-                val courseList = webWorker.fetchCourses(_userSelection.value.facultyId, form.id)
-                _courses.value = courseList
-            } catch (e: Exception) {
-                _errorMessage.value = "Ошибка при загрузке курсов"
-            } finally {
-                _isLoadingOptions.value = false
-            }
+            val courseList = scheduleRepository.courses(_userSelection.value.facultyId, form.id)
+            _courses.value = courseList.orEmpty()
+            reportCoursesError(courseList.errorOrNull)
+            _isLoadingOptions.value = false
         }
     }
 
@@ -374,18 +321,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _groups.value = emptyList()
             _weeks.value = emptyList()
 
-            try {
-                val groupList = webWorker.fetchGroups(
-                    _userSelection.value.facultyId,
-                    _userSelection.value.formId.ifBlank { "Dnevnaya" },
-                    course.id
-                )
-                _groups.value = groupList
-            } catch (e: Exception) {
-                _errorMessage.value = "Ошибка при загрузке групп"
-            } finally {
-                _isLoadingOptions.value = false
+            val groupList = scheduleRepository.groups(
+                _userSelection.value.facultyId,
+                _userSelection.value.formId.ifBlank { "Dnevnaya" },
+                course.id
+            )
+            _groups.value = groupList.orEmpty()
+            groupList.errorOrNull?.let {
+                _errorMessage.value = strings.get(R.string.error_load_groups, strings.reason(it))
             }
+            _isLoadingOptions.value = false
         }
     }
 
@@ -398,17 +343,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 weekName = ""
             )
 
-            try {
-                val weekList = webWorker.fetchWeeks(
-                    _userSelection.value.facultyId,
-                    _userSelection.value.formId.ifBlank { "Dnevnaya" },
-                    _userSelection.value.courseId,
-                    group.id
-                )
-                _weeks.value = processWeekList(weekList)
-            } catch (e: Exception) {
-                // non-fatal
-            }
+            // список недель не критичен: расписание загрузится и без него
+            val weekList = scheduleRepository.weeks(
+                _userSelection.value.facultyId,
+                _userSelection.value.formId.ifBlank { "Dnevnaya" },
+                _userSelection.value.courseId,
+                group.id
+            )
+            _weeks.value = Weeks.withAllOption(weekList.orEmpty())
             fetchSchedule(isManualRefresh = true)
         }
     }
@@ -419,35 +361,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             weekName = week.name
         )
         viewModelScope.launch {
-            preferencesManager.saveSelection(_userSelection.value)
+            store.saveSelection(_userSelection.value)
             val hasDataForWeek = if (week.id == ALL_WEEKS_ID) {
                 _allScheduleData.value.isNotEmpty()
             } else {
                 _allScheduleData.value.any { it.weekId == week.id }
             }
 
-            if (hasDataForWeek) {
-                filterAndApplyDisplayedSchedule()
-            } else {
-                try {
-                    _isLoading.value = true
-                    val fetched = webWorker.fetchSingleWeekSchedule(_userSelection.value, week.id, week.name)
-                    if (fetched.isNotEmpty()) {
-                        val existingOtherWeeks = _allScheduleData.value.filter { it.weekId != week.id }
-                        val merged = existingOtherWeeks + fetched
+            if (!hasDataForWeek) {
+                _isLoading.value = true
+                val loaded = scheduleRepository.loadWeek(_userSelection.value, week, _allScheduleData.value)
+                if (loaded is ApiResult.Success) {
+                    loaded.value?.let { (merged, time) ->
                         _allScheduleData.value = merged
-                        val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
-                        val formattedTime = timeFormat.format(Date())
-                        _lastUpdateTime.value = formattedTime
-                        preferencesManager.saveSchedule(merged, formattedTime, System.currentTimeMillis())
+                        _lastUpdateTime.value = time
+                        onScheduleUpdated()
                     }
-                    filterAndApplyDisplayedSchedule()
-                } catch (e: Exception) {
-                    filterAndApplyDisplayedSchedule()
-                } finally {
-                    _isLoading.value = false
                 }
+                _isLoading.value = false
             }
+            filterAndApplyDisplayedSchedule()
         }
     }
 
@@ -461,14 +394,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             all.filter { it.weekId == selectedWeekId }
         }
         _scheduleData.value = filtered.map { day ->
-            day.copy(lessons = WebWorker.groupLessonsByTime(day.lessons.map { WebWorker.normalizeLesson(it) }))
+            day.copy(lessons = ScheduleNormalizer.groupLessonsByTime(day.lessons.map { ScheduleNormalizer.normalizeLesson(it) }))
         }
     }
 
     fun applySelection(selection: UserSelection) {
         _userSelection.value = selection
         viewModelScope.launch {
-            preferencesManager.saveSelection(selection)
+            store.saveSelection(selection)
             fetchSchedule(isManualRefresh = true)
         }
     }
@@ -476,7 +409,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun fetchSchedule(isManualRefresh: Boolean = true) {
         val currentSelection = _userSelection.value
         if (!currentSelection.isComplete) {
-            _errorMessage.value = "Сначала выберите группу"
+            _errorMessage.value = strings.get(R.string.error_select_group_first)
             return
         }
 
@@ -484,60 +417,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isLoading.value = true
             _errorMessage.value = null
 
-            try {
-                val result = webWorker.fetchScheduleAndAvailableWeeks(currentSelection)
-                if (result.weeks.isNotEmpty()) {
-                    val processed = processWeekList(result.weeks)
-                    _weeks.value = processed
-
-                    val current = _userSelection.value
-                    if (current.weekId != ALL_WEEKS_ID) {
-                        val knownIds = result.weeks.map { it.id }
-                        val currentWeekId = PreferencesManager.findCurrentWeekId(result.weeks, result.daySchedules)
-
-                        val currentWeekHasLessons = result.daySchedules.any { it.weekId == current.weekId }
-                        val shouldResetToCurrentWeek = isManualRefresh ||
-                                current.weekId.isBlank() ||
-                                current.weekId == "0" ||
-                                current.weekId !in knownIds ||
-                                (!currentWeekHasLessons && currentWeekId != null)
-
-                        val targetWeekId = if (shouldResetToCurrentWeek) {
-                            currentWeekId ?: result.weeks.firstOrNull { it.id != ALL_WEEKS_ID }?.id ?: result.weeks.firstOrNull()?.id
-                        } else {
-                            current.weekId
-                        }
-
-                        val resolved = result.weeks.find { it.id == targetWeekId }
-                        if (resolved != null && (resolved.id != current.weekId || resolved.name != current.weekName)) {
-                            val updated = current.copy(weekId = resolved.id, weekName = resolved.name)
-                            _userSelection.value = updated
-                            preferencesManager.saveSelection(updated)
-                        }
-                    }
-                }
-
-                if (result.daySchedules.isNotEmpty()) {
-                    _allScheduleData.value = result.daySchedules
-                    filterAndApplyDisplayedSchedule()
-
-                    val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
-                    val formattedTime = timeFormat.format(Date())
-                    _lastUpdateTime.value = formattedTime
-                    preferencesManager.saveSchedule(result.daySchedules, formattedTime, System.currentTimeMillis())
-                } else {
-                    if (_scheduleData.value.isEmpty()) {
-                        _errorMessage.value = "Занятия не найдены или расписание не опубликовано."
-                    }
-                }
-            } catch (e: Exception) {
-                if (_scheduleData.value.isEmpty()) {
-                    _errorMessage.value = "Не удалось загрузить расписание: ${e.message}"
-                }
-            } finally {
-                _isLoading.value = false
+            val result = scheduleRepository.refresh(currentSelection, isManualRefresh)
+            if (result.weeks.isNotEmpty()) {
+                _weeks.value = result.weeks
             }
+            _userSelection.value = result.selection
+
+            if (result.days.isNotEmpty()) {
+                _allScheduleData.value = result.days
+                filterAndApplyDisplayedSchedule()
+                _lastUpdateTime.value = result.updateTime
+                onScheduleUpdated()
+            } else if (_scheduleData.value.isEmpty()) {
+                // сбой сети и «расписание не опубликовано» это разные ситуации
+                _errorMessage.value = result.error
+                    ?.let { strings.get(R.string.error_schedule_load, strings.reason(it)) }
+                    ?: strings.get(R.string.error_schedule_empty)
+            }
+            _isLoading.value = false
         }
+    }
+
+    private fun reportCoursesError(error: ApiError?) {
+        error?.let { _errorMessage.value = strings.get(R.string.error_load_courses, strings.reason(it)) }
     }
 
     // ----------------- Student Cabinet Methods -----------------
@@ -547,39 +449,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isStudentLoading.value = true
             _studentErrorMessage.value = null
 
-            val result = studentWebWorker.loginAndFetch(login, pass)
-            result.onSuccess { data ->
-                _studentCabinetData.value = data
-                val creds = StudentAuthCredentials(login, pass, rememberMe)
-                savedCredentials = creds
-
-                if (rememberMe) {
-                    preferencesManager.saveStudentCredentials(creds)
-                    preferencesManager.saveStudentCabinetData(data)
+            studentSession.login(login, pass, rememberMe)
+                .onSuccess { data -> _studentCabinetData.value = data }
+                .onFailure { exception ->
+                    _studentErrorMessage.value = exception.message ?: strings.get(R.string.error_auth_default)
                 }
-            }.onFailure { exception ->
-                _studentErrorMessage.value = exception.message ?: "Ошибка авторизации"
-            }
 
             _isStudentLoading.value = false
         }
     }
 
     fun refreshStudentCabinet() {
-        val creds = savedCredentials ?: return
+        if (!studentSession.isSignedIn) return
         viewModelScope.launch {
             _isStudentLoading.value = true
             _studentErrorMessage.value = null
 
-            val result = studentWebWorker.loginAndFetch(creds.login, creds.password)
-            result.onSuccess { data ->
-                _studentCabinetData.value = data
-                if (creds.rememberMe) {
-                    preferencesManager.saveStudentCabinetData(data)
-                }
-            }.onFailure { exception ->
-                _studentErrorMessage.value = exception.message
-            }
+            studentSession.refresh()
+                ?.onSuccess { data -> _studentCabinetData.value = data }
+                ?.onFailure { exception -> _studentErrorMessage.value = exception.message }
 
             _isStudentLoading.value = false
         }
@@ -588,8 +476,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun logoutStudent() {
         viewModelScope.launch {
             _studentCabinetData.value = null
-            savedCredentials = null
-            preferencesManager.clearStudentSession()
+            studentSession.logout()
         }
     }
 
@@ -598,14 +485,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun checkServerHealth() {
         viewModelScope.launch {
             _isCheckingHealth.value = true
-            try {
-                val health = webWorker.checkHealth()
-                _serverHealth.value = health
-            } catch (e: Exception) {
-                _serverHealth.value = ServerHealth(status = "error", service = "university", version = "")
-            } finally {
-                _isCheckingHealth.value = false
-            }
+            _serverHealth.value = scheduleRepository.checkHealth()
+            _isCheckingHealth.value = false
         }
     }
 
@@ -613,10 +494,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val sanitized = newUrl.trim().trimEnd('/')
         if (sanitized.isNotBlank()) {
             _serverUrl.value = sanitized
-            webWorker.updateBaseUrl(sanitized)
-            studentWebWorker.updateBaseUrl(sanitized)
+            scheduleRepository.setServerUrl(sanitized)
+            studentSession.setServerUrl(sanitized)
             viewModelScope.launch {
-                preferencesManager.saveServerUrl(sanitized)
+                settings.saveServerUrl(sanitized)
                 checkServerHealth()
                 loadFaculties()
             }
@@ -625,14 +506,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearScheduleCache() {
         viewModelScope.launch {
-            preferencesManager.clearScheduleCache()
+            store.clearScheduleCache()
             _allScheduleData.value = emptyList()
             _scheduleData.value = emptyList()
             _lastUpdateTime.value = null
             // Reset to current week
-            val resetSelection = _userSelection.value.copy(weekId = "0", weekName = "Текущая неделя")
+            val defaults = UserSelection()
+            val resetSelection = _userSelection.value.copy(weekId = defaults.weekId, weekName = defaults.weekName)
             _userSelection.value = resetSelection
-            preferencesManager.saveSelection(resetSelection)
+            store.saveSelection(resetSelection)
             if (resetSelection.isComplete) {
                 fetchSchedule(isManualRefresh = true)
             }
@@ -641,7 +523,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetSelection() {
         viewModelScope.launch {
-            preferencesManager.clearSelection()
+            store.clearSelection()
             _userSelection.value = UserSelection()
             _courses.value = emptyList()
             _groups.value = emptyList()

@@ -1,5 +1,10 @@
 package by.iposdev.watchso.presentation
 
+import mitsoschedule.core.schedule.TodayScheduleState
+import mitsoschedule.core.schedule.TodayStatus
+import androidx.compose.ui.res.stringResource
+import by.iposdev.watchso.R
+import mitsoschedule.core.schedule.ScheduleDates
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -63,13 +68,12 @@ import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
 import androidx.wear.tooling.preview.devices.WearDevices
 import by.iposdev.watchso.BuildConfig
-import by.iposdev.watchso.data.DaySchedule
-import by.iposdev.watchso.data.Lesson
-import by.iposdev.watchso.data.ScheduleTimeUtils
-import by.iposdev.watchso.data.StudentCabinetData
-import by.iposdev.watchso.data.UserSelection
+import mitsoschedule.core.model.DaySchedule
+import mitsoschedule.core.model.Lesson
+import mitsoschedule.core.model.StudentCabinetData
+import mitsoschedule.core.model.UserSelection
 import by.iposdev.watchso.presentation.components.WearDayHeader
-import by.iposdev.watchso.presentation.components.WearGroupHeaderCard
+import by.iposdev.watchso.presentation.components.WearScheduleHeader
 import by.iposdev.watchso.presentation.components.wearGroupPickerItems
 import by.iposdev.watchso.presentation.components.WearLessonCard
 import by.iposdev.watchso.presentation.components.WearNavHeader
@@ -77,13 +81,13 @@ import by.iposdev.watchso.presentation.components.WearPullToRefreshIndicator
 import by.iposdev.watchso.presentation.components.WearStudentCabinetContent
 import by.iposdev.watchso.presentation.components.WearStudentLoginCard
 import by.iposdev.watchso.presentation.components.WearTodayStatusBanner
-import by.iposdev.watchso.presentation.components.WearWeekNavigator
 import by.iposdev.watchso.presentation.haptics.rememberWearBiolumeHaptics
 import by.iposdev.watchso.presentation.theme.MitsoTestTheme
+import by.iposdev.watchso.WatchContainer
 import by.iposdev.watchso.presentation.viewmodel.MainViewModel
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: MainViewModel by viewModels()
+    private val viewModel: MainViewModel by viewModels { WatchContainer(application).viewModelFactory }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -124,9 +128,9 @@ fun WatchMainApp(viewModel: MainViewModel) {
     val isLoadingOptions by viewModel.isLoadingOptions
     val pickerStep by viewModel.pickerStep
 
-    val todaySchedule = remember(scheduleData) { ScheduleTimeUtils.findTodaySchedule(scheduleData) }
+    val todaySchedule = remember(scheduleData) { ScheduleDates.findTodaySchedule(scheduleData) }
     val todayTimeInfo = remember(todaySchedule) {
-        todaySchedule?.let { ScheduleTimeUtils.calculateTodayTimeInfo(it.lessons) }
+        todaySchedule?.let { TodayStatus.calculate(it.lessons) }
     }
 
     val listState = rememberScalingLazyListState()
@@ -182,7 +186,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                 source: NestedScrollSource
             ): Offset {
                 // Only accumulate on deliberate touch drag when user is at the very top (never on fling inertia)
-                if (currentScreen == 0 && !isLoading && source == NestedScrollSource.Drag && available.y > 0f && listState.centerItemIndex <= 1) {
+                if (currentScreen == WearScreen.SCHEDULE && !isLoading && source == NestedScrollSource.UserInput && available.y > 0f && listState.centerItemIndex <= 1) {
                     val newOffset = (pullOffset + available.y * 0.4f).coerceAtMost(maxPullPx)
                     val consumedY = newOffset - pullOffset
                     pullOffset = newOffset
@@ -238,47 +242,34 @@ fun WatchMainApp(viewModel: MainViewModel) {
                             viewModel.navigateTo(it)
                         }
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
                 }
 
             // 2. Active Screen Content
             when (currentScreen) {
-                0 -> {
+                WearScreen.SCHEDULE -> {
                     // --- SCHEDULE SCREEN ---
-                    item(key = "schedule_group_header") {
-                        WearGroupHeaderCard(
+                    item(key = "schedule_header") {
+                        WearScheduleHeader(
                             userSelection = userSelection,
+                            canGoPrev = viewModel.canGoPreviousWeek,
+                            canGoNext = viewModel.canGoNextWeek,
+                            onPrevClick = {
+                                wearHaptics.tick()
+                                viewModel.selectPreviousWeek()
+                            },
+                            onNextClick = {
+                                wearHaptics.tick()
+                                viewModel.selectNextWeek()
+                            },
                             onEditClick = {
                                 wearHaptics.click()
-                                viewModel.navigateTo(2)
-                            },
-                            onRefreshClick = {
-                                wearHaptics.click()
-                                viewModel.fetchSchedule(isManualRefresh = true)
+                                viewModel.navigateTo(WearScreen.PICKER)
                             },
                             isLoading = isLoading
                         )
                     }
 
-                    if (userSelection.isComplete) {
-                        item(key = "schedule_week_nav") {
-                            WearWeekNavigator(
-                                weekName = userSelection.weekName.ifBlank { "Текущая неделя" },
-                                canGoPrev = viewModel.canGoPreviousWeek,
-                                canGoNext = viewModel.canGoNextWeek,
-                                onPrevClick = {
-                                    wearHaptics.tick()
-                                    viewModel.selectPreviousWeek()
-                                },
-                                onNextClick = {
-                                    wearHaptics.tick()
-                                    viewModel.selectNextWeek()
-                                }
-                            )
-                        }
-                    }
-
-                    if (todayTimeInfo != null && todayTimeInfo.state != by.iposdev.watchso.data.TodayScheduleState.NO_LESSONS) {
+                    if (todayTimeInfo != null && todayTimeInfo.state != TodayScheduleState.NO_LESSONS) {
                         item(key = "schedule_today_banner") {
                             WearTodayStatusBanner(todayInfo = todayTimeInfo)
                         }
@@ -304,7 +295,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = "Группа не выбрана.",
+                                    text = stringResource(R.string.group_not_selected),
                                     style = MaterialTheme.typography.bodyMedium,
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier.padding(bottom = 8.dp)
@@ -312,9 +303,9 @@ fun WatchMainApp(viewModel: MainViewModel) {
                                 Chip(
                                     onClick = {
                                         wearHaptics.click()
-                                        viewModel.navigateTo(2)
+                                        viewModel.navigateTo(WearScreen.PICKER)
                                     },
-                                    label = { Text("Выбрать группу") },
+                                    label = { Text(stringResource(R.string.choose_group)) },
                                     icon = { Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(ChipDefaults.IconSize)) },
                                     colors = ChipDefaults.primaryChipColors(),
                                     modifier = Modifier.fillMaxWidth()
@@ -330,7 +321,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = errorMessage ?: "Ошибка загрузки",
+                                    text = errorMessage ?: stringResource(R.string.load_error),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error,
                                     textAlign = TextAlign.Center,
@@ -342,7 +333,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                                         wearHaptics.click()
                                         viewModel.fetchSchedule(isManualRefresh = true)
                                     },
-                                    label = { Text("Повторить", fontSize = 11.sp) },
+                                    label = { Text(stringResource(R.string.retry), fontSize = 11.sp) },
                                     icon = { Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(ChipDefaults.IconSize)) },
                                     colors = ChipDefaults.primaryChipColors(),
                                     modifier = Modifier.fillMaxWidth()
@@ -358,7 +349,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = "На выбранную неделю пар нет.",
+                                    text = stringResource(R.string.no_lessons_week),
                                     style = MaterialTheme.typography.bodyMedium,
                                     textAlign = TextAlign.Center
                                 )
@@ -369,7 +360,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                                         viewModel.fetchSchedule(isManualRefresh = true)
                                     },
                                     enabled = !isLoading,
-                                    label = { Text(if (isLoading) "Обновление..." else "Обновить", fontSize = 11.sp) },
+                                    label = { Text(if (isLoading) stringResource(R.string.refreshing) else stringResource(R.string.refresh), fontSize = 11.sp) },
                                     icon = {
                                         if (isLoading) {
                                             CircularProgressIndicator(
@@ -409,7 +400,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                                     viewModel.fetchSchedule(isManualRefresh = true)
                                 },
                                 enabled = !isLoading,
-                                label = { Text(if (isLoading) "Обновление..." else "Обновить расписание", fontSize = 11.sp) },
+                                label = { Text(if (isLoading) stringResource(R.string.refreshing) else stringResource(R.string.refresh_schedule), fontSize = 11.sp) },
                                 icon = {
                                     if (isLoading) {
                                         CircularProgressIndicator(
@@ -432,7 +423,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                                 wearHaptics.click()
                                 context.startActivity(Intent(context, AboutActivity::class.java))
                             },
-                            label = { Text("О приложении", fontSize = 11.sp) },
+                            label = { Text(stringResource(R.string.about_title), fontSize = 11.sp) },
                             icon = { Icon(Icons.Outlined.Info, contentDescription = null, modifier = Modifier.size(ChipDefaults.IconSize)) },
                             colors = ChipDefaults.secondaryChipColors(),
                             modifier = Modifier.fillMaxWidth()
@@ -443,7 +434,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                         val versionStr = "v${BuildConfig.VERSION_NAME}"
                         val cacheStr = lastUpdateTime?.let { " • $it" } ?: ""
                         Text(
-                            text = "МИТСО $versionStr$cacheStr",
+                            text = stringResource(R.string.app_footer, versionStr, cacheStr),
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -455,7 +446,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                     }
                 }
 
-                1 -> {
+                WearScreen.CABINET -> {
                     // --- STUDENT CABINET SCREEN ---
                     if (studentData != null) {
                         item(key = "cabinet_content") {
@@ -490,7 +481,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                     }
                 }
 
-                2 -> {
+                WearScreen.PICKER -> {
                     // --- GROUP PICKER SCREEN ---
                     wearGroupPickerItems(
                         step = pickerStep,
@@ -521,7 +512,7 @@ fun WatchMainApp(viewModel: MainViewModel) {
                         },
                         onBackToSchedule = {
                             wearHaptics.click()
-                            viewModel.navigateTo(0)
+                            viewModel.navigateTo(WearScreen.SCHEDULE)
                         }
                     )
                     item(key = "picker_bottom_spacer") {
@@ -585,10 +576,17 @@ fun WatchScheduleAppLoadedPreview() {
             ) {
                 item {
                     Spacer(modifier = Modifier.height(18.dp))
-                    WearNavHeader(currentScreen = 0, onNavigate = {})
+                    WearNavHeader(currentScreen = WearScreen.SCHEDULE, onNavigate = {})
                 }
                 item {
-                    WearGroupHeaderCard(userSelection = sampleSelection, onEditClick = {})
+                    WearScheduleHeader(
+                        userSelection = sampleSelection,
+                        canGoPrev = false,
+                        canGoNext = true,
+                        onPrevClick = {},
+                        onNextClick = {},
+                        onEditClick = {}
+                    )
                 }
                 sampleSchedule.forEach { day ->
                     item { WearDayHeader(dayTitle = day.dayTitle, isToday = true) }
@@ -626,7 +624,7 @@ fun WatchStudentCabinetPreview() {
             ) {
                 item {
                     Spacer(modifier = Modifier.height(18.dp))
-                    WearNavHeader(currentScreen = 1, onNavigate = {})
+                    WearNavHeader(currentScreen = WearScreen.CABINET, onNavigate = {})
                 }
                 item {
                     WearStudentCabinetContent(

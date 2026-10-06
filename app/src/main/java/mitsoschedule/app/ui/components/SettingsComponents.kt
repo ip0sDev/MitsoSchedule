@@ -1,5 +1,11 @@
 package mitsoschedule.app.ui.components
 
+import androidx.compose.material.icons.outlined.Widgets
+import mitsoschedule.app.widget.requestPinScheduleWidget
+import mitsoschedule.app.ui.theme.BiolumeShapes
+import androidx.compose.material3.Switch
+import androidx.compose.ui.res.stringResource
+import mitsoschedule.app.R
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -49,7 +55,7 @@ import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Palette
 import mitsoschedule.app.BuildConfig
-import mitsoschedule.app.data.ServerHealth
+import mitsoschedule.core.model.ServerHealth
 import mitsoschedule.app.ui.haptics.LocalBiolumeHaptics
 import mitsoschedule.app.ui.theme.BiolumeTheme
 import mitsoschedule.app.ui.theme.biolumeHairline
@@ -66,6 +72,8 @@ fun SettingsContent(
     onResetSelection: () -> Unit,
     currentTheme: String = "system",
     onThemeSelected: (String) -> Unit = {},
+    useDynamicColor: Boolean = false,
+    onDynamicColorChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -82,8 +90,13 @@ fun SettingsContent(
         // 0. Theme Selection Card
         ThemeSelectionCard(
             currentTheme = currentTheme,
-            onThemeSelected = onThemeSelected
+            onThemeSelected = onThemeSelected,
+            useDynamicColor = useDynamicColor,
+            onDynamicColorChange = onDynamicColorChange
         )
+
+        // 0.5 Виджет на рабочий стол
+        WidgetCard()
 
         // 1. App & Server Version Card
         AppAndServerVersionCard(
@@ -112,18 +125,18 @@ fun SettingsContent(
     if (showClearCacheDialog) {
         AlertDialog(
             onDismissRequest = { showClearCacheDialog = false },
-            title = { Text("Очистить кэш расписания?") },
-            text = { Text("Сохранённое на устройстве расписание будет удалено. При следующем запуске оно загрузится заново с сервера.") },
+            title = { Text(stringResource(R.string.clear_cache_title)) },
+            text = { Text(stringResource(R.string.clear_cache_message)) },
             confirmButton = {
                 Button(
                     onClick = {
                         haptics.mediumClick()
                         onClearCache()
                         showClearCacheDialog = false
-                        Toast.makeText(context, "Кэш очищен", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.cache_cleared), Toast.LENGTH_SHORT).show()
                     }
                 ) {
-                    Text("Очистить")
+                    Text(stringResource(R.string.clear))
                 }
             },
             dismissButton = {
@@ -131,7 +144,7 @@ fun SettingsContent(
                     haptics.tick()
                     showClearCacheDialog = false
                 }) {
-                    Text("Отмена")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
@@ -141,18 +154,18 @@ fun SettingsContent(
     if (showResetDialog) {
         AlertDialog(
             onDismissRequest = { showResetDialog = false },
-            title = { Text("Сбросить выбранную группу?") },
-            text = { Text("Выбор группы и факультета будет сброшен, потребуется выбрать их повторно.") },
+            title = { Text(stringResource(R.string.reset_group_title)) },
+            text = { Text(stringResource(R.string.reset_group_message)) },
             confirmButton = {
                 Button(
                     onClick = {
                         haptics.mediumClick()
                         onResetSelection()
                         showResetDialog = false
-                        Toast.makeText(context, "Выбор группы сброшен", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.group_reset_done), Toast.LENGTH_SHORT).show()
                     }
                 ) {
-                    Text("Сбросить")
+                    Text(stringResource(R.string.reset))
                 }
             },
             dismissButton = {
@@ -160,7 +173,7 @@ fun SettingsContent(
                     haptics.tick()
                     showResetDialog = false
                 }) {
-                    Text("Отмена")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
@@ -170,11 +183,13 @@ fun SettingsContent(
 @Composable
 private fun ThemeSelectionCard(
     currentTheme: String,
-    onThemeSelected: (String) -> Unit
+    onThemeSelected: (String) -> Unit,
+    useDynamicColor: Boolean,
+    onDynamicColorChange: (Boolean) -> Unit
 ) {
     val haptics = LocalBiolumeHaptics.current
     val depth = BiolumeTheme.depth
-    val cardShape = RoundedCornerShape(24.dp)
+    val cardShape = RoundedCornerShape(BiolumeShapes.CardLarge)
 
     Card(
         modifier = Modifier
@@ -209,7 +224,7 @@ private fun ThemeSelectionCard(
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = "Тема оформления",
+                    text = stringResource(R.string.theme_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -222,9 +237,9 @@ private fun ThemeSelectionCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 val themes = listOf(
-                    Triple("system", "Авто", Icons.Outlined.BrightnessAuto),
-                    Triple("dark", "Тёмная", Icons.Outlined.DarkMode),
-                    Triple("light", "Светлая", Icons.Outlined.LightMode)
+                    Triple("system", stringResource(R.string.theme_auto), Icons.Outlined.BrightnessAuto),
+                    Triple("dark", stringResource(R.string.theme_dark), Icons.Outlined.DarkMode),
+                    Triple("light", stringResource(R.string.theme_light), Icons.Outlined.LightMode)
                 )
 
                 themes.forEach { (mode, label, icon) ->
@@ -266,6 +281,41 @@ private fun ThemeSelectionCard(
                     }
                 }
             }
+
+            // Динамические цвета (Material You)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable {
+                        haptics.toggle()
+                        onDynamicColorChange(!useDynamicColor)
+                    }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.dynamic_color_title),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = stringResource(R.string.dynamic_color_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Switch(
+                    checked = useDynamicColor,
+                    onCheckedChange = {
+                        haptics.toggle()
+                        onDynamicColorChange(it)
+                    }
+                )
+            }
         }
     }
 }
@@ -284,19 +334,19 @@ private fun AppAndServerVersionCard(
         else -> MaterialTheme.colorScheme.error
     }
     val statusText = when {
-        isCheckingHealth -> "Проверка..."
-        isHealthy -> "В сети"
-        serverHealth?.status == "unreachable" -> "Недоступен"
+        isCheckingHealth -> stringResource(R.string.status_checking)
+        isHealthy -> stringResource(R.string.status_online)
+        serverHealth?.status == "unreachable" -> stringResource(R.string.status_unreachable)
         serverHealth != null -> serverHealth.status
-        else -> "Не проверен"
+        else -> stringResource(R.string.status_unchecked)
     }
 
     val depth = BiolumeTheme.depth
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .biolumeRaised(shape = RoundedCornerShape(24.dp), tokens = depth),
-        shape = RoundedCornerShape(24.dp),
+            .biolumeRaised(shape = RoundedCornerShape(BiolumeShapes.CardLarge), tokens = depth),
+        shape = RoundedCornerShape(BiolumeShapes.CardLarge),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         )
@@ -330,12 +380,12 @@ private fun AppAndServerVersionCard(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Версии и статус",
+                            text = stringResource(R.string.versions_status),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "МИТСО Расписание",
+                            text = stringResource(R.string.app_name),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -359,7 +409,7 @@ private fun AppAndServerVersionCard(
                     } else {
                         Icon(
                             imageVector = Icons.Outlined.Refresh,
-                            contentDescription = "Проверить статус",
+                            contentDescription = stringResource(R.string.check_status),
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -374,7 +424,7 @@ private fun AppAndServerVersionCard(
                 // App version
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Приложение",
+                        text = stringResource(R.string.app_section),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -388,7 +438,7 @@ private fun AppAndServerVersionCard(
                 // Server version
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Сервер",
+                        text = stringResource(R.string.server_section),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -419,7 +469,7 @@ private fun AppAndServerVersionCard(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Статус сервера: $statusText",
+                        text = stringResource(R.string.server_status, statusText),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                         color = statusColor
@@ -441,8 +491,8 @@ private fun CacheManagementCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .biolumeRaised(shape = RoundedCornerShape(24.dp), tokens = depth),
-        shape = RoundedCornerShape(24.dp),
+            .biolumeRaised(shape = RoundedCornerShape(BiolumeShapes.CardLarge), tokens = depth),
+        shape = RoundedCornerShape(BiolumeShapes.CardLarge),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
@@ -469,13 +519,13 @@ private fun CacheManagementCard(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Хранилище и кэш",
+                        text = stringResource(R.string.storage_cache),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     if (!lastUpdateTime.isNullOrBlank()) {
                         Text(
-                            text = "Обновлено: $lastUpdateTime",
+                            text = stringResource(R.string.updated_at, lastUpdateTime),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -492,7 +542,7 @@ private fun CacheManagementCard(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(100.dp)
                 ) {
-                    Text("Очистить кэш", maxLines = 1)
+                    Text(stringResource(R.string.clear_cache), maxLines = 1)
                 }
 
                 OutlinedButton(
@@ -500,8 +550,74 @@ private fun CacheManagementCard(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(100.dp)
                 ) {
-                    Text("Сброс группы", maxLines = 1)
+                    Text(stringResource(R.string.reset_group_button), maxLines = 1)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WidgetCard() {
+    val context = LocalContext.current
+    val haptics = LocalBiolumeHaptics.current
+    val depth = BiolumeTheme.depth
+    val cardShape = RoundedCornerShape(BiolumeShapes.CardLarge)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .biolumeRaised(shape = cardShape, tokens = depth),
+        shape = cardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.Widgets,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = stringResource(R.string.widget_card_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = stringResource(R.string.widget_card_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            OutlinedButton(
+                onClick = {
+                    haptics.click()
+                    if (!requestPinScheduleWidget(context)) {
+                        Toast.makeText(context, context.getString(R.string.widget_pin_unsupported), Toast.LENGTH_LONG).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(100.dp)
+            ) {
+                Text(stringResource(R.string.widget_add), maxLines = 1)
             }
         }
     }

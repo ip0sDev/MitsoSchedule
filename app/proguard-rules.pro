@@ -19,3 +19,6 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Kotlinx Serialization: нужны аннотации и сигнатуры; правила для моделей лежат в :core (consumer-rules.pro)
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod

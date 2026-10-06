@@ -1,5 +1,7 @@
 package by.iposdev.watchso.presentation.components
 
+import androidx.compose.ui.res.stringResource
+import by.iposdev.watchso.R
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -28,8 +30,8 @@ import androidx.wear.compose.material3.CircularProgressIndicator
 import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
-import by.iposdev.watchso.data.OptionItem
-import by.iposdev.watchso.data.UserSelection
+import mitsoschedule.core.model.OptionItem
+import mitsoschedule.core.model.UserSelection
 import by.iposdev.watchso.presentation.viewmodel.WearPickerStep
 
 /**
@@ -61,14 +63,14 @@ fun ScalingLazyListScope.wearGroupPickerItems(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Факультет",
+                        text = stringResource(R.string.faculty),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = "Шаг 1 из 3",
+                        text = stringResource(R.string.step_1_of_3),
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -96,7 +98,7 @@ fun ScalingLazyListScope.wearGroupPickerItems(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "Не удалось загрузить факультеты",
+                            text = stringResource(R.string.faculties_load_failed),
                             style = MaterialTheme.typography.bodySmall,
                             textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.error
@@ -104,7 +106,7 @@ fun ScalingLazyListScope.wearGroupPickerItems(
                         Spacer(modifier = Modifier.height(6.dp))
                         Chip(
                             onClick = onRetryFaculties,
-                            label = { Text("Повторить", fontSize = 11.sp) },
+                            label = { Text(stringResource(R.string.retry), fontSize = 11.sp) },
                             icon = { Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(ChipDefaults.IconSize)) },
                             colors = ChipDefaults.primaryChipColors(),
                             modifier = Modifier.fillMaxWidth()
@@ -143,7 +145,7 @@ fun ScalingLazyListScope.wearGroupPickerItems(
                     Spacer(modifier = Modifier.height(4.dp))
                     Chip(
                         onClick = onBackToSchedule,
-                        label = { Text("Отмена", fontSize = 11.sp) },
+                        label = { Text(stringResource(R.string.cancel), fontSize = 11.sp) },
                         icon = { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, modifier = Modifier.size(ChipDefaults.IconSize)) },
                         colors = ChipDefaults.secondaryChipColors(),
                         modifier = Modifier.fillMaxWidth()
@@ -161,14 +163,14 @@ fun ScalingLazyListScope.wearGroupPickerItems(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Курс",
+                        text = stringResource(R.string.course),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = currentSelection.facultyName.ifBlank { "Шаг 2 из 3" },
+                        text = currentSelection.facultyName.ifBlank { stringResource(R.string.step_2_of_3) },
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -180,7 +182,7 @@ fun ScalingLazyListScope.wearGroupPickerItems(
             item(key = "picker_course_back") {
                 Chip(
                     onClick = { onStepChange(WearPickerStep.FACULTY) },
-                    label = { Text("← К факультетам", fontSize = 11.sp) },
+                    label = { Text(stringResource(R.string.back_to_faculties), fontSize = 11.sp) },
                     colors = ChipDefaults.secondaryChipColors(),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -200,7 +202,7 @@ fun ScalingLazyListScope.wearGroupPickerItems(
             } else if (courses.isEmpty()) {
                 item(key = "picker_course_empty") {
                     Text(
-                        text = "Курсы не найдены",
+                        text = stringResource(R.string.courses_not_found),
                         style = MaterialTheme.typography.bodySmall,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
@@ -237,7 +239,7 @@ fun ScalingLazyListScope.wearGroupPickerItems(
                     Spacer(modifier = Modifier.height(4.dp))
                     Chip(
                         onClick = onBackToSchedule,
-                        label = { Text("Отмена", fontSize = 11.sp) },
+                        label = { Text(stringResource(R.string.cancel), fontSize = 11.sp) },
                         icon = { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, modifier = Modifier.size(ChipDefaults.IconSize)) },
                         colors = ChipDefaults.secondaryChipColors(),
                         modifier = Modifier.fillMaxWidth()
@@ -255,7 +257,7 @@ fun ScalingLazyListScope.wearGroupPickerItems(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Группа",
+                        text = stringResource(R.string.group),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
@@ -274,7 +276,7 @@ fun ScalingLazyListScope.wearGroupPickerItems(
             item(key = "picker_group_back") {
                 Chip(
                     onClick = { onStepChange(WearPickerStep.COURSE) },
-                    label = { Text("← К курсам", fontSize = 11.sp) },
+                    label = { Text(stringResource(R.string.back_to_courses), fontSize = 11.sp) },
                     colors = ChipDefaults.secondaryChipColors(),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -294,7 +296,7 @@ fun ScalingLazyListScope.wearGroupPickerItems(
             } else if (groups.isEmpty()) {
                 item(key = "picker_group_empty") {
                     Text(
-                        text = "Группы не найдены",
+                        text = stringResource(R.string.groups_not_found),
                         style = MaterialTheme.typography.bodySmall,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
@@ -333,7 +335,7 @@ fun ScalingLazyListScope.wearGroupPickerItems(
                     Spacer(modifier = Modifier.height(4.dp))
                     Chip(
                         onClick = onBackToSchedule,
-                        label = { Text("Отмена", fontSize = 11.sp) },
+                        label = { Text(stringResource(R.string.cancel), fontSize = 11.sp) },
                         icon = { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, modifier = Modifier.size(ChipDefaults.IconSize)) },
                         colors = ChipDefaults.secondaryChipColors(),
                         modifier = Modifier.fillMaxWidth()

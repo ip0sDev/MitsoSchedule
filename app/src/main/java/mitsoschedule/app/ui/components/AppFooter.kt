@@ -1,5 +1,8 @@
 package mitsoschedule.app.ui.components
 
+import mitsoschedule.app.ui.theme.BiolumeShapes
+import androidx.compose.ui.res.stringResource
+import mitsoschedule.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -40,12 +43,12 @@ fun AppFooter(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 20.dp)
             .biolumeHairline(
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(BiolumeShapes.CardLarge),
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                 outlineColor = MaterialTheme.colorScheme.outlineVariant
             ),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(24.dp)
+        shape = RoundedCornerShape(BiolumeShapes.CardLarge)
     ) {
         Column(
             modifier = Modifier
@@ -66,7 +69,7 @@ fun AppFooter(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "МИТСО Расписание",
+                    text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -76,7 +79,7 @@ fun AppFooter(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Международный университет «МИТСО»",
+                text = stringResource(R.string.university_name),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -85,7 +88,7 @@ fun AppFooter(
             if (!lastUpdateTime.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Обновлено: $lastUpdateTime",
+                    text = stringResource(R.string.updated_at, lastUpdateTime),
                     style = BiolumeTheme.dataType.dataSmall,
                     color = MaterialTheme.colorScheme.outline
                 )

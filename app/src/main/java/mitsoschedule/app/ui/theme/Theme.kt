@@ -1,5 +1,8 @@
 package mitsoschedule.app.ui.theme
 
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.ui.platform.LocalContext
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -92,11 +95,20 @@ private val TidepoolColorScheme = lightColorScheme(
 @Composable
 fun MitsoTestTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false, // Biolume custom palette takes precedence over dynamic color
+    // true: цвета из обоев (Material You). Форма, рельеф и типографика остаются Biolume,
+    // сигнальный слой (glow, заливка выбора) перекрашивается под динамический primary.
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) AbyssColorScheme else TidepoolColorScheme
-    val depthTokens = if (darkTheme) AbyssDepthTokens else TidepoolDepthTokens
+    val context = LocalContext.current
+    val colorScheme = when {
+        dynamicColor && darkTheme -> dynamicDarkColorScheme(context)
+        dynamicColor -> dynamicLightColorScheme(context)
+        darkTheme -> AbyssColorScheme
+        else -> TidepoolColorScheme
+    }
+    val baseDepth = if (darkTheme) AbyssDepthTokens else TidepoolDepthTokens
+    val depthTokens = if (dynamicColor) baseDepth.recoloredFor(colorScheme) else baseDepth
     val statusColors = if (darkTheme) AbyssStatusColors else TidepoolStatusColors
 
     val view = LocalView.current

@@ -1,5 +1,7 @@
 package by.iposdev.watchso.presentation
 
+import androidx.compose.ui.res.stringResource
+import by.iposdev.watchso.R
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -59,7 +61,7 @@ fun AboutScreen(onBackClicked: () -> Unit) {
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "О приложении",
+                        text = stringResource(R.string.about_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
@@ -74,7 +76,7 @@ fun AboutScreen(onBackClicked: () -> Unit) {
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
                     ) {
                         Column(modifier = Modifier.fillMaxWidth().padding(10.dp)) {
-                            Text("Разработчик:", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.developer), style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("IposDev", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         }
                     }
@@ -86,7 +88,7 @@ fun AboutScreen(onBackClicked: () -> Unit) {
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
                     ) {
                         Column(modifier = Modifier.fillMaxWidth().padding(10.dp)) {
-                            Text("Версия Wear OS:", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.wear_version), style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(BuildConfig.VERSION_NAME, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         }
                     }
@@ -98,7 +100,7 @@ fun AboutScreen(onBackClicked: () -> Unit) {
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
                     ) {
                         Column(modifier = Modifier.fillMaxWidth().padding(10.dp)) {
-                            Text("Тех. поддержка:", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.tech_support), style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("TG @iposdev", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         }
                     }
@@ -109,8 +111,8 @@ fun AboutScreen(onBackClicked: () -> Unit) {
                 item {
                     Chip(
                         onClick = onBackClicked,
-                        label = { Text("Назад", fontSize = 11.sp) },
-                        icon = { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад", modifier = Modifier.size(ChipDefaults.IconSize)) },
+                        label = { Text(stringResource(R.string.back), fontSize = 11.sp) },
+                        icon = { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.back), modifier = Modifier.size(ChipDefaults.IconSize)) },
                         colors = ChipDefaults.secondaryChipColors(),
                         modifier = Modifier.fillMaxWidth()
                     )

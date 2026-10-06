@@ -1,0 +1,6 @@
+<resources>
+    <!-- Причины сбоя сети: подставляются в сообщения об ошибках обоих приложений -->
+    <string name="error_reason_network">нет связи с сервером</string>
+    <string name="error_reason_http">сервер вернул ошибку (код %1$d)</string>
+    <string name="error_reason_parse">некорректный ответ сервера</string>
+</resources>
