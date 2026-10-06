@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -18,6 +20,33 @@ android {
 
     }
 
+    // Тот же ключ, что и у телефона (на CI он приходит из секретов). Без ключа, как при локальной
+    // сборке, релиз часов подписывается отладочным ключом.
+    signingConfigs {
+        create("release") {
+            val keystoreBase64 = (project.findProperty("KEYSTORE_BASE64") as? String)
+                ?: System.getenv("KEYSTORE_BASE64")
+            val keystoreFileProp = (project.findProperty("KEYSTORE_FILE") as? String)
+                ?: System.getenv("KEYSTORE_FILE")
+
+            if (!keystoreBase64.isNullOrBlank()) {
+                val tempKeystore = file("${layout.buildDirectory.get()}/tmp/release.keystore")
+                tempKeystore.parentFile.mkdirs()
+                tempKeystore.writeBytes(Base64.getDecoder().decode(keystoreBase64.trim()))
+                storeFile = tempKeystore
+            } else if (!keystoreFileProp.isNullOrBlank()) {
+                storeFile = file(keystoreFileProp)
+            }
+
+            storePassword = (project.findProperty("KEYSTORE_PASSWORD") as? String)
+                ?: System.getenv("KEYSTORE_PASSWORD") ?: ""
+            keyAlias = (project.findProperty("KEY_ALIAS") as? String)
+                ?: System.getenv("KEY_ALIAS") ?: ""
+            keyPassword = (project.findProperty("KEY_PASSWORD") as? String)
+                ?: System.getenv("KEY_PASSWORD") ?: ""
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -26,7 +55,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            val releaseKeystore = signingConfigs.getByName("release").storeFile
+            signingConfig = if (releaseKeystore != null && releaseKeystore.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
     compileOptions {
