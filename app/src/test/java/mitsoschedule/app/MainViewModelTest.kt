@@ -181,7 +181,13 @@ class MainViewModelTest {
         val vm = newViewModel()
         awaitUntil("кэш в UI") { vm.scheduleData.value.isNotEmpty() }
         vm.fetchSchedule(isManualRefresh = true)
-        awaitUntil("конец загрузки") { !vm.isLoading.value && server.requests.any { it.startsWith("/api/v1/schedule/weeks") } }
+        awaitUntil("конец загрузки") {
+            !vm.isLoading.value &&
+                server.requests.any { it.startsWith("/api/v1/schedule/weeks") } &&
+                // фоновая загрузка факультетов тоже успела упасть: ошибка не должна просочиться в экран
+                server.requests.any { it.startsWith("/api/v1/schedule/faculties") } &&
+                !vm.isLoadingOptions.value
+        }
 
         assertEquals(1, vm.scheduleData.value.size)
         assertNull(vm.errorMessage.value)

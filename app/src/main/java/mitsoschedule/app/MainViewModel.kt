@@ -177,7 +177,9 @@ class MainViewModel(
 
             // 3. Load options and trigger background refresh asynchronously without blocking cached UI
             launch {
-                loadFaculties()
+                // Группа уже выбрана и расписание показано из кэша: сбой фоновой загрузки
+                // списка факультетов (например, нет сети) не должен выглядеть как ошибка экрана
+                loadFaculties(reportErrors = saved?.isComplete != true)
             }
 
             if (saved != null && saved.isComplete) {
@@ -227,13 +229,14 @@ class MainViewModel(
 
     // ----------------- Schedule Methods -----------------
 
-    fun loadFaculties() {
+    fun loadFaculties(reportErrors: Boolean = true) {
         viewModelScope.launch {
             _isLoadingOptions.value = true
             when (val result = scheduleRepository.faculties()) {
                 is ApiResult.Success -> _faculties.value = result.value
-                is ApiResult.Failure ->
+                is ApiResult.Failure -> if (reportErrors) {
                     _errorMessage.value = strings.get(R.string.error_load_faculties, strings.reason(result.error))
+                }
             }
             _isLoadingOptions.value = false
         }
